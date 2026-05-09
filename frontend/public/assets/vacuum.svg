@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="무선청소기 상품 이미지">
+  <rect width="640" height="480" fill="#f0fdfa"/>
+  <rect x="310" y="70" width="36" height="250" rx="18" fill="#0f766e"/>
+  <rect x="270" y="112" width="110" height="92" rx="30" fill="#14b8a6"/>
+  <rect x="250" y="305" width="155" height="34" rx="17" fill="#334155"/>
+  <rect x="220" y="340" width="220" height="24" rx="12" fill="#64748b"/>
+  <circle cx="385" cy="176" r="18" fill="#ccfbf1"/>
+</svg>

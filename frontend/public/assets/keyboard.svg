@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="키보드 상품 이미지">
+  <rect width="640" height="480" fill="#f1f5f9"/>
+  <rect x="110" y="150" width="420" height="180" rx="22" fill="#334155"/>
+  <g fill="#e2e8f0">
+    <rect x="140" y="180" width="42" height="32" rx="5"/>
+    <rect x="195" y="180" width="42" height="32" rx="5"/>
+    <rect x="250" y="180" width="42" height="32" rx="5"/>
+    <rect x="305" y="180" width="42" height="32" rx="5"/>
+    <rect x="360" y="180" width="42" height="32" rx="5"/>
+    <rect x="415" y="180" width="42" height="32" rx="5"/>
+    <rect x="140" y="230" width="42" height="32" rx="5"/>
+    <rect x="195" y="230" width="42" height="32" rx="5"/>
+    <rect x="250" y="230" width="150" height="32" rx="5"/>
+    <rect x="415" y="230" width="42" height="32" rx="5"/>
+  </g>
+</svg>

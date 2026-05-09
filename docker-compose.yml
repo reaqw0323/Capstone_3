@@ -1,0 +1,83 @@
+name: easypick
+
+services:
+  database:
+    image: postgres:16-alpine
+    container_name: easypick-db
+    environment:
+      POSTGRES_DB: easypick
+      POSTGRES_USER: easypick
+      POSTGRES_PASSWORD: easypick
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easypick -d easypick"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: easypick-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: easypick-ollama-init
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ./ai:/ai:ro
+    entrypoint: ["/bin/sh", "/ai/init-ollama.sh"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+    container_name: easypick-backend
+    depends_on:
+      database:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://easypick:easypick@database:5432/easypick
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: easypick-ai
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./ai/prompts:/app/ai_prompts:ro
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: easypick-frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+
+volumes:
+  postgres_data:
+  ollama_data:

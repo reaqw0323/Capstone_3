@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="마우스 상품 이미지">
+  <rect width="640" height="480" fill="#fef2f2"/>
+  <rect x="235" y="95" width="170" height="300" rx="85" fill="#991b1b"/>
+  <path d="M320 100v110" stroke="#fecaca" stroke-width="8" stroke-linecap="round"/>
+  <rect x="306" y="140" width="28" height="62" rx="14" fill="#fee2e2"/>
+  <path d="M238 250h164" stroke="#fecaca" stroke-width="6"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="노트북 상품 이미지">
+  <rect width="640" height="480" fill="#edf2f7"/>
+  <rect x="145" y="110" width="350" height="220" rx="14" fill="#1f2937"/>
+  <rect x="165" y="130" width="310" height="174" rx="6" fill="#84cc16"/>
+  <rect x="105" y="340" width="430" height="34" rx="10" fill="#6b7280"/>
+  <rect x="250" y="348" width="140" height="8" rx="4" fill="#d1d5db"/>
+</svg>

@@ -1,0 +1,173 @@
+# EasyPick AI
+
+EasyPick AI는 캡스톤디자인 발표용으로 만든 로컬 AI 쇼핑/가격비교 웹서비스입니다.
+사용자는 상품을 검색하고, 상세 정보를 확인하고, 여러 상품을 비교하고, 장바구니에 담아 주문 시뮬레이션까지 진행할 수 있습니다.
+AI 기능은 외부 유료 API 없이 Docker 안의 Ollama와 `qwen3:4b` 기반 전용 모델 `easypick-ai`로 실행됩니다.
+
+처음 실행하는 팀원은 먼저 [START_HERE.md](./START_HERE.md)를 보면 됩니다.
+
+## 주요 기능
+
+- 상품 검색, 카테고리/가격/브랜드/정렬 필터
+- 상품 상세 페이지와 리뷰 목록
+- 상품 2~3개 비교 표
+- AI 상품 추천, AI 상품 비교, AI 리뷰 요약
+- 장바구니, 주문서 작성, 주문 완료/주문 내역 확인
+- 관리자 페이지에서 상품 추가/수정/삭제, 주문 상태 변경
+- PostgreSQL seed 데이터 자동 입력
+- Ollama 컨테이너에서 `qwen3:4b` 다운로드 후 `easypick-ai` 모델 자동 생성
+
+## 기술 스택
+
+- Frontend: React, Vite, React Router, CSS
+- Backend: FastAPI, psycopg, httpx
+- Database: PostgreSQL
+- Local AI: Ollama, `qwen3:4b`, `easypick-ai`
+- Infra: Docker Compose
+
+## 폴더 구조
+
+```text
+shopsense/
+├─ frontend/              # React 쇼핑몰 UI
+├─ backend/               # FastAPI REST API, DB 연결, Ollama 연동
+├─ database/init.sql      # 테이블 생성, 더미 상품/리뷰/카테고리 데이터
+├─ ai/
+│  ├─ Modelfile           # easypick-ai 시스템 프롬프트
+│  ├─ init-ollama.sh      # qwen3:4b pull 및 easypick-ai 생성 스크립트
+│  └─ prompts/            # AI 추천/비교/리뷰 요약 프롬프트
+├─ docker-compose.yml
+├─ .env.example
+├─ START_HERE.md          # 팀원용 초간단 실행 가이드
+└─ README.md
+```
+
+## 실행 주소
+
+- 프론트엔드: http://localhost:5173
+- 백엔드 API: http://localhost:8000
+- 백엔드 API 문서: http://localhost:8000/docs
+- 관리자 페이지: http://localhost:5173/admin
+- Ollama API: http://localhost:11434
+- AI 모델명: `easypick-ai`
+
+## 빠른 실행
+
+```bash
+git clone <repository-url>
+cd shopsense
+docker compose up -d --build
+docker compose up ollama-init
+```
+
+첫 실행에서는 `qwen3:4b` 모델을 다운로드하므로 시간이 오래 걸릴 수 있습니다.
+다운로드가 끝나면 브라우저에서 http://localhost:5173 으로 접속합니다.
+
+## 확인 명령어
+
+```bash
+docker compose ps
+docker exec -it easypick-ollama ollama list
+```
+
+`ollama list` 결과에 아래 두 모델이 보이면 AI 준비가 끝난 상태입니다.
+
+```text
+qwen3:4b
+easypick-ai:latest
+```
+
+## 발표 시연 흐름
+
+1. http://localhost:5173 접속
+2. 메인 검색창에 `무선청소기` 입력
+3. 상품 목록에서 최고가 `200000` 입력 후 필터 적용
+4. 상품 2~3개를 비교 담기
+5. 비교 페이지로 이동
+6. `AI 비교 설명 요청` 클릭
+7. AI 도우미 페이지에서 `20만 원 이하로 자취방에서 쓸 무선청소기 추천해줘` 입력
+8. 추천 상품 상세 페이지 확인
+9. 장바구니 담기
+10. 주문서 작성 후 결제 시뮬레이션 완료
+11. 관리자 페이지에서 상품 등록 또는 주문 상태 변경 시연
+
+## 자주 생기는 문제
+
+### 상품 목록이 안 뜰 때
+
+```bash
+docker compose ps
+```
+
+`easypick-db`, `easypick-backend`, `easypick-frontend`가 모두 실행 중인지 확인합니다.
+그 다음 브라우저에서 http://localhost:8000/api/products 를 열어 상품 JSON이 나오는지 확인합니다.
+
+### AI가 응답하지 않을 때
+
+```bash
+docker compose up ollama-init
+docker exec -it easypick-ollama ollama list
+```
+
+`easypick-ai:latest`가 없으면 모델 생성이 아직 끝나지 않은 것입니다.
+처음에는 모델 다운로드 때문에 몇 분 이상 걸릴 수 있습니다.
+
+### DB seed 데이터가 반영되지 않을 때
+
+PostgreSQL 볼륨이 이미 만들어진 뒤에는 `database/init.sql`이 다시 자동 실행되지 않습니다.
+개발 중 DB를 초기화하려면 아래 명령을 사용합니다.
+
+```bash
+docker compose down -v
+docker compose up -d --build
+docker compose up ollama-init
+```
+
+주의: `down -v`는 로컬 DB 데이터와 Ollama 모델 볼륨을 지웁니다. 모델도 다시 다운로드될 수 있습니다.
+
+### 포트 충돌이 날 때
+
+이미 5173, 8000, 5432, 11434 포트를 다른 프로그램이 쓰고 있을 수 있습니다.
+기존 프로그램을 종료하거나 `docker-compose.yml`의 포트 매핑을 바꿉니다.
+
+## API 요약
+
+상품 API:
+
+- `GET /api/products`
+- `GET /api/products/{id}`
+- `GET /api/categories`
+- `GET /api/products/compare?ids=1,2,3`
+- `GET /api/products/{id}/reviews`
+
+AI API:
+
+- `POST /api/ai/recommend`
+- `POST /api/ai/compare`
+- `POST /api/ai/review-summary`
+
+장바구니/주문 API:
+
+- `GET /api/cart?sessionId=...`
+- `POST /api/cart/items`
+- `PUT /api/cart/items/{id}`
+- `DELETE /api/cart/items/{id}?sessionId=...`
+- `POST /api/orders`
+- `GET /api/orders?sessionId=...`
+- `GET /api/orders/{orderNumber}`
+
+관리자 API:
+
+- `POST /api/admin/products`
+- `PUT /api/admin/products/{id}`
+- `DELETE /api/admin/products/{id}`
+- `GET /api/admin/orders`
+- `PATCH /api/admin/orders/{id}/status`
+
+## 중요한 주의사항
+
+- OpenAI, Gemini, Claude 같은 외부 AI API를 사용하지 않습니다.
+- 실제 쇼핑몰 API나 크롤링 데이터를 사용하지 않습니다.
+- 상품/리뷰 데이터는 `database/init.sql`의 더미 데이터입니다.
+- 모델 파일 자체는 GitHub에 올리지 않습니다. Docker 실행 시 Ollama가 자동 다운로드합니다.
+- AI는 백엔드가 DB에서 조회한 후보 상품 안에서만 답하도록 프롬프트를 구성합니다.

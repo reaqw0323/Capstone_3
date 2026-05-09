@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="이어폰 상품 이미지">
+  <rect width="640" height="480" fill="#fff7ed"/>
+  <rect x="230" y="170" width="70" height="150" rx="35" fill="#ea580c"/>
+  <rect x="340" y="170" width="70" height="150" rx="35" fill="#fb923c"/>
+  <circle cx="265" cy="160" r="54" fill="#fed7aa"/>
+  <circle cx="375" cy="160" r="54" fill="#ffedd5"/>
+  <rect x="260" y="305" width="120" height="38" rx="19" fill="#9a3412"/>
+</svg>

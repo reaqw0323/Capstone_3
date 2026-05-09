@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="스마트워치 상품 이미지">
+  <rect width="640" height="480" fill="#f7fee7"/>
+  <rect x="280" y="50" width="80" height="110" rx="22" fill="#365314"/>
+  <rect x="280" y="320" width="80" height="110" rx="22" fill="#365314"/>
+  <rect x="220" y="135" width="200" height="210" rx="48" fill="#1f2937"/>
+  <rect x="245" y="160" width="150" height="160" rx="30" fill="#bef264"/>
+  <circle cx="320" cy="240" r="42" fill="#4d7c0f"/>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="모니터 상품 이미지">
+  <rect width="640" height="480" fill="#eef2ff"/>
+  <rect x="120" y="80" width="400" height="250" rx="18" fill="#111827"/>
+  <rect x="145" y="105" width="350" height="200" rx="8" fill="#60a5fa"/>
+  <rect x="290" y="330" width="60" height="55" fill="#4b5563"/>
+  <rect x="230" y="385" width="180" height="22" rx="10" fill="#6b7280"/>
+</svg>

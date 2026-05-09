@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="공기청정기 상품 이미지">
+  <rect width="640" height="480" fill="#f8fafc"/>
+  <rect x="220" y="80" width="200" height="330" rx="34" fill="#e5e7eb"/>
+  <rect x="252" y="120" width="136" height="34" rx="17" fill="#0f766e"/>
+  <circle cx="320" cy="214" r="54" fill="#ffffff"/>
+  <circle cx="320" cy="214" r="30" fill="#99f6e4"/>
+  <g stroke="#94a3b8" stroke-width="8">
+    <line x1="255" y1="310" x2="385" y2="310"/>
+    <line x1="255" y1="340" x2="385" y2="340"/>
+    <line x1="255" y1="370" x2="385" y2="370"/>
+  </g>
+</svg>
