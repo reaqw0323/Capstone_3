@@ -56,6 +56,22 @@ cd easypick
 
 ## 4. 사이트 실행
 
+Windows에서 가장 쉽게 실행하려면 아래 파일을 더블클릭합니다.
+
+```text
+start-easypick.bat
+```
+
+이 파일은 NVIDIA GPU가 있으면 GPU 모드로, GPU가 없으면 CPU 모드로 자동 실행합니다.
+
+PowerShell에서 직접 실행하려면 아래 명령어를 사용합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-easypick.ps1
+```
+
+수동으로 실행하고 싶다면 아래 명령어를 순서대로 실행합니다.
+
 아래 명령어를 순서대로 실행합니다.
 
 ```powershell

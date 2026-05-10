@@ -5,6 +5,7 @@ EasyPick AI는 캡스톤디자인 발표용으로 만든 로컬 AI 쇼핑/가격
 AI 기능은 외부 유료 API 없이 Docker 안의 Ollama와 `qwen3:4b` 기반 전용 모델 `easypick-ai`로 실행됩니다.
 
 처음 실행하는 팀원은 먼저 [START_HERE.md](./START_HERE.md)를 보면 됩니다.
+GPU 자동 감지 실행은 [GPU_AUTO_RUN.md](./GPU_AUTO_RUN.md)를 보면 됩니다.
 
 ## 주요 기능
 
@@ -59,6 +60,14 @@ cd shopsense
 docker compose up -d --build
 docker compose up ollama-init
 ```
+
+Windows에서 GPU가 있으면 GPU로, 없으면 CPU로 자동 실행하고 싶을 때는 아래 파일을 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-easypick.ps1
+```
+
+또는 `start-easypick.bat` 파일을 더블클릭해도 됩니다.
 
 첫 실행에서는 `qwen3:4b` 모델을 다운로드하므로 시간이 오래 걸릴 수 있습니다.
 다운로드가 끝나면 브라우저에서 http://localhost:5173 으로 접속합니다.
