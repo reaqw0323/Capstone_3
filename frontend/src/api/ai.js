@@ -1,7 +1,8 @@
 import { apiPost } from "./client";
+import { getSessionId } from "../utils/session";
 
-export function requestRecommendation(message) {
-  return apiPost("/api/ai/recommend", { message });
+export function requestRecommendation(message, sessionId) {
+  return apiPost("/api/ai/recommend", { message, session_id: sessionId || getSessionId() });
 }
 
 export function requestAiCompare(productIds, criteria) {

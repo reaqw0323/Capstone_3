@@ -12,6 +12,8 @@ export default function ComparePage() {
   const [aiAnswer, setAiAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const selectedCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean)));
+  const hasMixedCategories = selectedCategories.length > 1;
 
   useEffect(() => {
     if (compareIds.length === 0) {
@@ -25,6 +27,12 @@ export default function ComparePage() {
   }, [compareIds]);
 
   const askAi = async () => {
+    if (hasMixedCategories) {
+      setAiAnswer(
+        `선택한 상품의 카테고리가 서로 달라 AI 비교 설명을 만들 수 없습니다.\n선택된 카테고리: ${selectedCategories.join(", ")}\n같은 카테고리 상품끼리 선택해 주세요.`
+      );
+      return;
+    }
     setAiLoading(true);
     setAiAnswer("");
     try {
@@ -55,7 +63,17 @@ export default function ComparePage() {
           <h2>AI 비교 설명</h2>
         </div>
         <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} rows="3" />
-        <button className="button primary" onClick={askAi} disabled={aiLoading || compareIds.length < 2} type="button">
+        {hasMixedCategories && (
+          <p className="error-text">
+            서로 다른 카테고리 상품은 AI 비교 설명을 제공하지 않습니다. 같은 카테고리 상품끼리 선택해 주세요.
+          </p>
+        )}
+        <button
+          className="button primary"
+          onClick={askAi}
+          disabled={aiLoading || compareIds.length < 2 || hasMixedCategories}
+          type="button"
+        >
           AI 비교 설명 요청
         </button>
         {aiLoading && <LoadingSpinner label="AI가 비교 설명을 작성하고 있습니다" />}

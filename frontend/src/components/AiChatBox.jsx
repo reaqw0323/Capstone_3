@@ -11,7 +11,7 @@ const examples = [
 ];
 
 export default function AiChatBox({ initialMessage = "" }) {
-  const { addToCart } = useCart();
+  const { addToCart, sessionId } = useCart();
   const [message, setMessage] = useState(initialMessage);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +32,7 @@ export default function AiChatBox({ initialMessage = "" }) {
     setMessage("");
 
     try {
-      const result = await requestRecommendation(userMessage);
+      const result = await requestRecommendation(userMessage, sessionId);
       setHistory((current) => [
         ...current,
         { role: "assistant", content: result.answer, products: result.products || [] },
