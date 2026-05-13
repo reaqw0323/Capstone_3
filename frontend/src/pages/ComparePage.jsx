@@ -77,7 +77,7 @@ export default function ComparePage() {
           AI 비교 설명 요청
         </button>
         {aiLoading && <LoadingSpinner label="AI가 비교 설명을 작성하고 있습니다" />}
-        {aiAnswer && <pre className="ai-result">{aiAnswer}</pre>}
+        {aiAnswer && <div className="ai-result-box">{aiAnswer}</div>}
       </section>
     </div>
   );

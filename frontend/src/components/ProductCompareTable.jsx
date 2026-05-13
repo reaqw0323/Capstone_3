@@ -7,6 +7,9 @@ export default function ProductCompareTable({ products }) {
 
   const specKeys = Array.from(new Set(products.flatMap((product) => Object.keys(product.specs || {}))));
 
+  const minPrice = Math.min(...products.map((p) => p.price));
+  const maxRating = Math.max(...products.map((p) => p.rating));
+
   return (
     <div className="table-scroll">
       <table className="compare-table">
@@ -14,7 +17,15 @@ export default function ProductCompareTable({ products }) {
           <tr>
             <th>항목</th>
             {products.map((product) => (
-              <th key={product.id}>{product.name}</th>
+              <th key={product.id}>
+                {product.name}
+                {product.price === minPrice && (
+                  <span className="badge badge-lowest" style={{ marginLeft: 6 }}>최저가</span>
+                )}
+                {product.rating === maxRating && (
+                  <span className="badge badge-top-rated" style={{ marginLeft: 6 }}>평점 우수</span>
+                )}
+              </th>
             ))}
           </tr>
         </thead>
@@ -36,13 +47,23 @@ export default function ProductCompareTable({ products }) {
           <tr>
             <td>가격</td>
             {products.map((product) => (
-              <td key={product.id}>{priceFormatter.format(product.price)}원</td>
+              <td key={product.id} className={product.price === minPrice ? "cell-best-price" : ""}>
+                {priceFormatter.format(product.price)}원
+                {product.price === minPrice && (
+                  <span className="badge badge-lowest" style={{ marginLeft: 6 }}>최저가</span>
+                )}
+              </td>
             ))}
           </tr>
           <tr>
             <td>평점</td>
             {products.map((product) => (
-              <td key={product.id}>{product.rating}점</td>
+              <td key={product.id} className={product.rating === maxRating ? "cell-best-rating" : ""}>
+                {product.rating}점
+                {product.rating === maxRating && (
+                  <span className="badge badge-top-rated" style={{ marginLeft: 6 }}>평점 우수</span>
+                )}
+              </td>
             ))}
           </tr>
           <tr>
@@ -51,14 +72,18 @@ export default function ProductCompareTable({ products }) {
               <td key={product.id}>{product.review_count}개</td>
             ))}
           </tr>
-          {specKeys.map((key) => (
-            <tr key={key}>
-              <td>{key}</td>
-              {products.map((product) => (
-                <td key={product.id}>{product.specs?.[key] || "정보 없음"}</td>
-              ))}
-            </tr>
-          ))}
+          {specKeys.map((key) => {
+            const values = products.map((p) => p.specs?.[key] || "");
+            const allSame = values.every((v) => v === values[0]);
+            return (
+              <tr key={key} className={!allSame ? "spec-row-diff" : ""}>
+                <td>{key}</td>
+                {products.map((product) => (
+                  <td key={product.id}>{product.specs?.[key] || "정보 없음"}</td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

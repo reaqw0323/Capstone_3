@@ -4,6 +4,17 @@ import { fetchCategories, fetchProducts } from "../api/products";
 import ProductCard from "../components/ProductCard";
 import LoadingSpinner from "../components/LoadingSpinner";
 
+const categoryIconMap = {
+  "노트북": "/assets/laptop.svg",
+  "모니터": "/assets/monitor.svg",
+  "무선청소기": "/assets/vacuum.svg",
+  "공기청정기": "/assets/air-purifier.svg",
+  "이어폰": "/assets/earphones.svg",
+  "키보드": "/assets/keyboard.svg",
+  "마우스": "/assets/mouse.svg",
+  "스마트워치": "/assets/smartwatch.svg",
+};
+
 export default function HomePage() {
   const navigate = useNavigate();
   const [keyword, setKeyword] = useState("");
@@ -71,6 +82,9 @@ export default function HomePage() {
         <div className="category-grid">
           {categories.map((category) => (
             <Link key={category.id} to={`/products?category=${category.name}`} className="category-tile">
+              {categoryIconMap[category.name] && (
+                <img src={categoryIconMap[category.name]} alt="" className="category-icon" />
+              )}
               <strong>{category.name}</strong>
               <span>{category.description}</span>
             </Link>

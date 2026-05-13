@@ -23,10 +23,22 @@ export default function ProductCard({ product }) {
           {product.name}
         </Link>
         <p className="product-description">{product.short_description}</p>
+        {product.original_price > product.price && (
+          <div className="price-row">
+            <span className="product-original-price">{priceFormatter.format(product.original_price)}원</span>
+            <span className="discount-badge">
+              {Math.round((1 - product.price / product.original_price) * 100)}%↓
+            </span>
+          </div>
+        )}
         <div className="product-price">{priceFormatter.format(product.price)}원</div>
         <div className="rating-row">
-          <span>평점 {product.rating}</span>
-          <span>리뷰 {product.review_count}</span>
+          <span>⭐ {product.rating}</span>
+          <span>리뷰 {product.review_count}개</span>
+          {product.stock === 0 && <span className="badge badge-out-of-stock">재고 없음</span>}
+          {product.stock > 0 && product.stock < 5 && (
+            <span className="badge badge-low-stock">재고 {product.stock}개</span>
+          )}
         </div>
         <div className="card-actions">
           <button

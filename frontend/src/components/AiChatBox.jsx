@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { requestRecommendation } from "../api/ai";
 import { useCart } from "../context/CartContext";
-import LoadingSpinner from "./LoadingSpinner";
 
 const examples = [
   "20만 원 이하로 자취방에서 쓸 무선청소기 추천해줘",
   "부모님이 쓰기 쉬운 공기청정기 중 가성비 좋은 거 알려줘",
   "게임용 모니터인데 30만 원 안쪽으로 괜찮은 거 비교해줘",
+  "리뷰 단점 적은 이어폰 추천해줘",
 ];
 
 export default function AiChatBox({ initialMessage = "" }) {
@@ -62,6 +62,9 @@ export default function AiChatBox({ initialMessage = "" }) {
         )}
         {history.map((item, index) => (
           <div key={`${item.role}-${index}`} className={`chat-message ${item.role}`}>
+            <div className="chat-role-label">
+              {item.role === "user" ? "나" : "AI 쇼핑 도우미"}
+            </div>
             <pre>{item.content}</pre>
             {item.products?.length > 0 && (
               <div className="mini-products">
@@ -81,7 +84,14 @@ export default function AiChatBox({ initialMessage = "" }) {
             )}
           </div>
         ))}
-        {loading && <LoadingSpinner label="AI가 상품 후보를 비교하고 있습니다" />}
+        {loading && (
+          <div className="chat-message">
+            <div className="chat-role-label">AI 쇼핑 도우미</div>
+            <div className="chat-typing">
+              <span /><span /><span />
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <p className="error-text">{error}</p>}

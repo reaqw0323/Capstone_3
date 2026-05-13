@@ -109,7 +109,7 @@ export default function ProductDetailPage() {
             </button>
           </div>
           {summaryLoading && <LoadingSpinner label="리뷰를 요약하고 있습니다" />}
-          {summary && <pre className="ai-result">{summary}</pre>}
+          {summary && <div className="ai-result-box">{summary}</div>}
           {!summary && !summaryLoading && <p className="empty-text">리뷰 요약 버튼을 눌러 AI 요약을 확인하세요.</p>}
         </div>
       </section>

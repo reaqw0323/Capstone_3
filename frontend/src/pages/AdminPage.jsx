@@ -210,21 +210,27 @@ export default function AdminPage() {
         {error && <p className="error-text">{error}</p>}
 
         <form className="admin-form" onSubmit={submit}>
+          {editingId && (
+            <div className="editing-banner">
+              ✏️ 수정 모드 — ID {editingId} 상품을 수정하고 있습니다. 취소하려면 [새 상품 입력]을 누르세요.
+            </div>
+          )}
           <label>
-            상품명
-            <input value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+            상품명 <span className="required-mark">*</span>
+            <input required value={form.name} onChange={(event) => updateField("name", event.target.value)} placeholder="예: 다이슨 V15 무선청소기" />
           </label>
           <label>
-            브랜드
-            <input value={form.brand} onChange={(event) => updateField("brand", event.target.value)} />
+            브랜드 <span className="required-mark">*</span>
+            <input required value={form.brand} onChange={(event) => updateField("brand", event.target.value)} placeholder="예: 다이슨" />
           </label>
           <label>
-            카테고리
+            카테고리 <span className="required-mark">*</span>
             <select
+              required
               value={form.category_id}
               onChange={(event) => updateField("category_id", event.target.value)}
             >
-              <option value="">선택</option>
+              <option value="">선택하세요</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
@@ -233,32 +239,38 @@ export default function AdminPage() {
             </select>
           </label>
           <label>
-            판매가
+            판매가 <span className="required-mark">*</span>
             <input
+              required
               type="number"
               min="0"
               value={form.price}
               onChange={(event) => updateField("price", event.target.value)}
+              placeholder="예: 159000"
             />
           </label>
           <label>
-            정가
+            정가 <span style={{ color: "var(--muted)", fontWeight: 400 }}>(선택)</span>
             <input
               type="number"
               min="0"
               value={form.original_price}
               onChange={(event) => updateField("original_price", event.target.value)}
+              placeholder="할인 전 가격"
             />
           </label>
           <label>
             이미지
-            <select value={form.image_url} onChange={(event) => updateField("image_url", event.target.value)}>
-              {imageOptions.map((image) => (
-                <option key={image} value={image}>
-                  {image}
-                </option>
-              ))}
-            </select>
+            <div className="admin-image-select-row">
+              <select value={form.image_url} onChange={(event) => updateField("image_url", event.target.value)}>
+                {imageOptions.map((image) => (
+                  <option key={image} value={image}>
+                    {image}
+                  </option>
+                ))}
+              </select>
+              <img src={form.image_url} alt="미리보기" className="admin-image-preview" />
+            </div>
           </label>
           <label>
             평점
@@ -269,6 +281,7 @@ export default function AdminPage() {
               step="0.1"
               value={form.rating}
               onChange={(event) => updateField("rating", event.target.value)}
+              placeholder="0.0 ~ 5.0"
             />
           </label>
           <label>
@@ -278,6 +291,7 @@ export default function AdminPage() {
               min="0"
               value={form.review_count}
               onChange={(event) => updateField("review_count", event.target.value)}
+              placeholder="0"
             />
           </label>
           <label>
@@ -287,6 +301,7 @@ export default function AdminPage() {
               min="0"
               value={form.stock}
               onChange={(event) => updateField("stock", event.target.value)}
+              placeholder="0"
             />
           </label>
           <label className="admin-form-wide">
@@ -294,6 +309,7 @@ export default function AdminPage() {
             <input
               value={form.short_description}
               onChange={(event) => updateField("short_description", event.target.value)}
+              placeholder="상품의 핵심 특징을 한 줄로 입력하세요"
             />
           </label>
           <label className="admin-form-wide">
