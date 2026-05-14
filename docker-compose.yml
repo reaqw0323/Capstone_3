@@ -12,7 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./database:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U easypick -d easypick"]
       interval: 5s
@@ -56,6 +56,7 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgresql://easypick:easypick@database:5432/easypick
+      DB_MIGRATIONS_DIR: /app/database/migrations
       AI_PROVIDER: ${AI_PROVIDER:-ollama}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-easypick-ai}
@@ -74,6 +75,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      - ./database:/app/database:ro
       - ./ai/prompts:/app/ai_prompts:ro
 
   frontend:

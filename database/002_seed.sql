@@ -1,118 +1,11 @@
-DROP TABLE IF EXISTS ai_logs;
-DROP TABLE IF EXISTS ai_settings;
-DROP TABLE IF EXISTS order_items;
-DROP TABLE IF EXISTS orders;
-DROP TABLE IF EXISTS cart_items;
-DROP TABLE IF EXISTS reviews;
-DROP TABLE IF EXISTS products;
-DROP TABLE IF EXISTS categories;
-
-CREATE TABLE categories (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(80) NOT NULL UNIQUE,
-  description TEXT
-);
-
-CREATE TABLE products (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(160) NOT NULL,
-  brand VARCHAR(80) NOT NULL,
-  category_id INTEGER NOT NULL REFERENCES categories(id),
-  price INTEGER NOT NULL CHECK (price >= 0),
-  original_price INTEGER CHECK (original_price >= 0),
-  image_url TEXT NOT NULL,
-  short_description TEXT,
-  detail_description TEXT NOT NULL DEFAULT '',
-  recommended_for TEXT NOT NULL DEFAULT '',
-  cautions TEXT NOT NULL DEFAULT '',
-  specs JSONB NOT NULL DEFAULT '{}'::jsonb,
-  rating NUMERIC(2,1) NOT NULL DEFAULT 0,
-  review_count INTEGER NOT NULL DEFAULT 0,
-  stock INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE reviews (
-  id SERIAL PRIMARY KEY,
-  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  user_name VARCHAR(60) NOT NULL,
-  rating NUMERIC(2,1) NOT NULL CHECK (rating >= 0 AND rating <= 5),
-  content TEXT NOT NULL,
-  pros TEXT,
-  cons TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE cart_items (
-  id SERIAL PRIMARY KEY,
-  session_id VARCHAR(120) NOT NULL,
-  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  quantity INTEGER NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (session_id, product_id)
-);
-
-CREATE TABLE orders (
-  id SERIAL PRIMARY KEY,
-  order_number VARCHAR(40) NOT NULL UNIQUE,
-  session_id VARCHAR(120) NOT NULL,
-  customer_name VARCHAR(80) NOT NULL,
-  phone VARCHAR(40) NOT NULL,
-  address TEXT NOT NULL,
-  delivery_memo TEXT,
-  payment_method VARCHAR(40) NOT NULL,
-  total_price INTEGER NOT NULL CHECK (total_price >= 0),
-  status VARCHAR(30) NOT NULL DEFAULT '주문 접수',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE order_items (
-  id SERIAL PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
-  product_name VARCHAR(160) NOT NULL,
-  brand VARCHAR(80) NOT NULL,
-  image_url TEXT NOT NULL,
-  price INTEGER NOT NULL CHECK (price >= 0),
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  subtotal INTEGER NOT NULL CHECK (subtotal >= 0)
-);
-
-CREATE TABLE ai_logs (
-  id SERIAL PRIMARY KEY,
-  user_message TEXT NOT NULL,
-  ai_response TEXT NOT NULL,
-  product_ids INTEGER[] DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE ai_settings (
-  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  provider VARCHAR(30) NOT NULL DEFAULT 'ollama',
-  ollama_base_url TEXT NOT NULL DEFAULT 'http://ollama:11434',
-  ollama_model TEXT NOT NULL DEFAULT 'easypick-ai',
-  lmstudio_base_url TEXT NOT NULL DEFAULT 'http://host.docker.internal:1234/v1',
-  lmstudio_model TEXT NOT NULL DEFAULT 'local-model',
-  lmstudio_api_key TEXT NOT NULL DEFAULT '',
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 INSERT INTO ai_settings (
   id, provider, ollama_base_url, ollama_model,
   lmstudio_base_url, lmstudio_model, lmstudio_api_key
 ) VALUES (
   1, 'ollama', 'http://ollama:11434', 'easypick-ai',
   'http://host.docker.internal:1234/v1', 'local-model', ''
-);
-
-CREATE INDEX idx_products_category ON products(category_id);
-CREATE INDEX idx_products_price ON products(price);
-CREATE INDEX idx_products_brand ON products(brand);
-CREATE INDEX idx_reviews_product ON reviews(product_id);
-CREATE INDEX idx_cart_session ON cart_items(session_id);
-CREATE INDEX idx_orders_session ON orders(session_id);
-CREATE INDEX idx_order_items_order ON order_items(order_id);
+)
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO categories (id, name, description) VALUES
 (1, '노트북', '수업, 업무, 코딩, 휴대용 작업에 맞춘 노트북'),
@@ -122,7 +15,8 @@ INSERT INTO categories (id, name, description) VALUES
 (5, '이어폰', '통학, 운동, 통화용 무선 이어폰'),
 (6, '키보드', '사무, 코딩, 게임용 키보드'),
 (7, '마우스', '사무, 게임, 휴대용 마우스'),
-(8, '스마트워치', '건강 관리와 알림 확인용 스마트워치');
+(8, '스마트워치', '건강 관리와 알림 확인용 스마트워치')
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO products (id, name, brand, category_id, price, original_price, image_url, short_description, specs, rating, review_count, stock) VALUES
 (1, 'LiteBook Air 14', 'NovaTech', 1, 699000, 799000, '/assets/laptop.svg', '가벼운 수업용 14인치 노트북', '{"CPU":"Ryzen 5 7530U","RAM":"16GB","Storage":"512GB SSD","Display":"14인치 FHD","Weight":"1.25kg"}', 4.5, 128, 17),
@@ -171,7 +65,8 @@ INSERT INTO products (id, name, brand, category_id, price, original_price, image
 (37, 'HealthRing Watch', 'Mellow', 8, 199000, 239000, '/assets/smartwatch.svg', '부모님 건강 체크에 초점을 둔 스마트워치', '{"Display":"1.8인치","Battery":"6일","GPS":"내장 GPS","Health":"심박, 혈중산소","Button":"큰 글씨 모드"}', 4.4, 118, 26),
 (38, 'RunMate GPS', 'Aster', 8, 249000, 299000, '/assets/smartwatch.svg', '러닝과 야외 운동에 맞춘 GPS 스마트워치', '{"Display":"1.4인치 AMOLED","Battery":"10일","GPS":"멀티밴드","Health":"심박, VO2max","Waterproof":"5ATM"}', 4.6, 92, 17),
 (39, 'StyleWatch Mini', 'Eon', 8, 99000, 129000, '/assets/smartwatch.svg', '가볍게 착용하기 좋은 입문형 스마트워치', '{"Display":"1.3인치","Battery":"5일","GPS":"연결 GPS","Health":"심박, 수면","Weight":"32g"}', 4.0, 84, 33),
-(40, 'WorkSync Watch', 'Hanbit', 8, 169000, 209000, '/assets/smartwatch.svg', '일정 알림과 통화 기능을 강화한 스마트워치', '{"Display":"1.7인치 AMOLED","Battery":"7일","GPS":"내장 GPS","Call":"블루투스 통화","Health":"심박, 스트레스"}', 4.3, 101, 28);
+(40, 'WorkSync Watch', 'Hanbit', 8, 169000, 209000, '/assets/smartwatch.svg', '일정 알림과 통화 기능을 강화한 스마트워치', '{"Display":"1.7인치 AMOLED","Battery":"7일","GPS":"내장 GPS","Call":"블루투스 통화","Health":"심박, 스트레스"}', 4.3, 101, 28)
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO reviews (product_id, user_name, rating, content, pros, cons, created_at)
 SELECT
@@ -188,8 +83,13 @@ CROSS JOIN (
     ('민지', 0.1, '%s를 일주일 정도 써봤는데 기본기는 만족스럽습니다. 가격대와 성능의 균형이 괜찮습니다.', '가장 마음에 든 점은 %s라는 점입니다.', '고급 기능이나 구성품은 제품별로 확인이 필요합니다.', 3),
     ('준호', -0.2, '%s는 실사용에서 큰 불편은 없었지만 기대보다 아쉬운 부분도 있었습니다.', '설치나 사용 방법이 어렵지 않아 처음 쓰기 편했습니다.', '마감이나 소음, 무게 같은 체감 요소는 사람에 따라 다를 수 있습니다.', 9),
     ('서연', 0.0, '%s를 비슷한 가격대 제품과 비교하다가 선택했습니다. 전체적으로 무난한 선택입니다.', '가격 대비 필요한 기능을 잘 갖춘 편입니다.', '세부 스펙을 꼼꼼히 비교하고 사는 것이 좋습니다.', 15)
-) AS r(user_name, delta, content_template, pros_template, cons_text, days_ago);
+) AS r(user_name, delta, content_template, pros_template, cons_text, days_ago)
+WHERE NOT EXISTS (SELECT 1 FROM reviews);
 
-SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
-SELECT setval('products_id_seq', (SELECT MAX(id) FROM products));
-SELECT setval('reviews_id_seq', (SELECT MAX(id) FROM reviews));
+INSERT INTO schema_migrations (version)
+VALUES ('001_expandability_core')
+ON CONFLICT (version) DO NOTHING;
+
+SELECT setval('categories_id_seq', (SELECT COALESCE(MAX(id), 1) FROM categories));
+SELECT setval('products_id_seq', (SELECT COALESCE(MAX(id), 1) FROM products));
+SELECT setval('reviews_id_seq', (SELECT COALESCE(MAX(id), 1) FROM reviews));

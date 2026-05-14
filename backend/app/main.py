@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from psycopg.types.json import Jsonb
 
 from .db import get_connection
+from .migrations import run_migrations
 
 
 app = FastAPI(title="EasyPick AI API", version="1.0.0")
@@ -25,16 +26,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+ORDER_STATUSES = {"주문 접수", "결제 확인", "배송 준비", "배송 중", "배송 완료", "주문 취소"}
+
+
+@app.on_event("startup")
+def startup_event() -> None:
+    run_migrations()
+    ensure_ai_settings_table()
+
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "easypick-ai")
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "180"))
 LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
 LMSTUDIO_MODEL = os.getenv("LMSTUDIO_MODEL", "local-model")
 LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY", "")
 LMSTUDIO_TIMEOUT_SECONDS = float(os.getenv("LMSTUDIO_TIMEOUT_SECONDS", "240"))
 LMSTUDIO_CONTEXT_LENGTH = int(os.getenv("LMSTUDIO_CONTEXT_LENGTH", "8192"))
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "900"))
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "500"))
 PROMPT_CONTEXT_BUFFER_TOKENS = int(os.getenv("PROMPT_CONTEXT_BUFFER_TOKENS", "1200"))
 PROMPT_CHAR_BUDGET = int(os.getenv("PROMPT_CHAR_BUDGET", "0"))
 PROMPT_DIR = Path(os.getenv("PROMPT_DIR", "/app/ai_prompts"))
@@ -174,10 +184,66 @@ def product_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def ensure_product_extra_columns() -> None:
-    with get_connection() as conn:
-        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS detail_description TEXT NOT NULL DEFAULT ''")
-        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS recommended_for TEXT NOT NULL DEFAULT ''")
-        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS cautions TEXT NOT NULL DEFAULT ''")
+    # Product schema changes are handled by versioned SQL migrations.
+    return None
+
+
+def ensure_shopping_session(session_id: str | None, conn=None) -> None:
+    if not session_id:
+        return
+
+    query = """
+        INSERT INTO shopping_sessions (session_id, last_seen_at)
+        VALUES (%s, NOW())
+        ON CONFLICT (session_id)
+        DO UPDATE SET last_seen_at = NOW(), updated_at = NOW()
+    """
+
+    if conn is not None:
+        conn.execute(query, [session_id])
+        return
+
+    with get_connection() as db:
+        db.execute(query, [session_id])
+
+
+def record_order_status_history(
+    conn,
+    order_id: int,
+    previous_status: str | None,
+    new_status: str,
+    changed_by: str,
+    note: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO order_status_history (
+            order_id, previous_status, new_status, changed_by, note
+        )
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        [order_id, previous_status, new_status, changed_by, note],
+    )
+
+
+def record_inventory_transaction(
+    conn,
+    product_id: int,
+    order_id: int | None,
+    reason: str,
+    quantity_change: int,
+    stock_after: int,
+    note: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO inventory_transactions (
+            product_id, order_id, reason, quantity_change, stock_after, note
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        [product_id, order_id, reason, quantity_change, stock_after, note],
+    )
 
 
 def read_prompt(name: str, fallback: str) -> str:
@@ -492,6 +558,7 @@ def cart_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def get_cart_data(session_id: str) -> dict[str, Any]:
     with get_connection() as conn:
+        ensure_shopping_session(session_id, conn)
         rows = conn.execute(
             """
             SELECT
@@ -616,6 +683,7 @@ def has_decision_intent(message: str) -> bool:
 
 def get_orders_for_session(session_id: str, limit: int = 5) -> list[dict[str, Any]]:
     with get_connection() as conn:
+        ensure_shopping_session(session_id, conn)
         rows = conn.execute(
             """
             SELECT id
@@ -967,20 +1035,6 @@ def ensure_ai_settings_table() -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS ai_settings (
-                id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-                provider VARCHAR(30) NOT NULL DEFAULT 'ollama',
-                ollama_base_url TEXT NOT NULL DEFAULT 'http://ollama:11434',
-                ollama_model TEXT NOT NULL DEFAULT 'easypick-ai',
-                lmstudio_base_url TEXT NOT NULL DEFAULT 'http://host.docker.internal:1234/v1',
-                lmstudio_model TEXT NOT NULL DEFAULT 'local-model',
-                lmstudio_api_key TEXT NOT NULL DEFAULT '',
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        conn.execute(
-            """
             INSERT INTO ai_settings (
                 id, provider, ollama_base_url, ollama_model,
                 lmstudio_base_url, lmstudio_model, lmstudio_api_key
@@ -1240,10 +1294,15 @@ async def call_ollama(prompt: str, settings: dict[str, Any] | None = None) -> st
     }
     try:
         await unload_lmstudio_other_models(settings, keep_model="")
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS) as client:
             response = await client.post(f"{settings['ollama_base_url']}/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
+    except httpx.TimeoutException:
+        return (
+            "Ollama 응답 시간이 너무 오래 걸렸습니다. 관리자 페이지에서 LM Studio를 사용하거나, "
+            "OLLAMA_NUM_CTX/AI_MAX_TOKENS 값을 더 낮춰 다시 시도해 주세요."
+        )
     except httpx.HTTPError:
         return (
             "AI 서버에 연결하지 못했습니다. Ollama 컨테이너와 easypick-ai 모델이 "
@@ -1332,14 +1391,21 @@ async def call_ai(prompt: str) -> str:
     return "AI_PROVIDER는 ollama 또는 lmstudio 중 하나로 설정해 주세요."
 
 
-def save_ai_log(message: str, answer: str, product_ids: list[int]) -> None:
+def save_ai_log(
+    message: str,
+    answer: str,
+    product_ids: list[int],
+    session_id: str | None = None,
+    request_type: str = "general",
+) -> None:
     with get_connection() as conn:
+        ensure_shopping_session(session_id, conn)
         conn.execute(
             """
-            INSERT INTO ai_logs (user_message, ai_response, product_ids)
-            VALUES (%s, %s, %s)
+            INSERT INTO ai_logs (session_id, request_type, user_message, ai_response, product_ids)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            [message, answer, product_ids],
+            [session_id, request_type, message, answer, product_ids],
         )
 
 
@@ -1636,6 +1702,7 @@ def add_cart_item(request: CartItemRequest):
 
     quantity = min(request.quantity, product["stock"])
     with get_connection() as conn:
+        ensure_shopping_session(request.session_id, conn)
         conn.execute(
             """
             INSERT INTO cart_items (session_id, product_id, quantity)
@@ -1651,6 +1718,7 @@ def add_cart_item(request: CartItemRequest):
 @app.put("/api/cart/items/{cart_item_id}")
 def update_cart_item(cart_item_id: int, request: CartQuantityRequest):
     with get_connection() as conn:
+        ensure_shopping_session(request.session_id, conn)
         row = conn.execute(
             """
             UPDATE cart_items ci
@@ -1671,6 +1739,7 @@ def update_cart_item(cart_item_id: int, request: CartQuantityRequest):
 @app.delete("/api/cart/items/{cart_item_id}")
 def delete_cart_item(cart_item_id: int, sessionId: str):
     with get_connection() as conn:
+        ensure_shopping_session(sessionId, conn)
         row = conn.execute(
             "DELETE FROM cart_items WHERE id = %s AND session_id = %s RETURNING id",
             [cart_item_id, sessionId],
@@ -1683,6 +1752,7 @@ def delete_cart_item(cart_item_id: int, sessionId: str):
 @app.delete("/api/cart")
 def clear_cart(sessionId: str):
     with get_connection() as conn:
+        ensure_shopping_session(sessionId, conn)
         conn.execute("DELETE FROM cart_items WHERE session_id = %s", [sessionId])
     return {"items": [], "total_price": 0, "total_quantity": 0}
 
@@ -1690,6 +1760,7 @@ def clear_cart(sessionId: str):
 @app.post("/api/orders")
 def create_order(request: CheckoutRequest):
     with get_connection() as conn:
+        ensure_shopping_session(request.session_id, conn)
         cart_rows = conn.execute(
             """
             SELECT
@@ -1742,6 +1813,7 @@ def create_order(request: CheckoutRequest):
                 total_price,
             ],
         ).fetchone()
+        record_order_status_history(conn, order["id"], None, "주문 접수", "customer")
 
         for row in cart_rows:
             conn.execute(
@@ -1763,9 +1835,23 @@ def create_order(request: CheckoutRequest):
                     row["subtotal"],
                 ],
             )
-            conn.execute(
-                "UPDATE products SET stock = GREATEST(stock - %s, 0) WHERE id = %s",
+            stock_row = conn.execute(
+                """
+                UPDATE products
+                SET stock = GREATEST(stock - %s, 0)
+                WHERE id = %s
+                RETURNING stock
+                """,
                 [row["quantity"], row["product_id"]],
+            ).fetchone()
+            record_inventory_transaction(
+                conn,
+                row["product_id"],
+                order["id"],
+                "order_placed",
+                -row["quantity"],
+                stock_row["stock"],
+                f"order_number={order_number}",
             )
 
         conn.execute("DELETE FROM cart_items WHERE session_id = %s", [request.session_id])
@@ -1776,6 +1862,7 @@ def create_order(request: CheckoutRequest):
 @app.get("/api/orders")
 def list_orders(sessionId: str):
     with get_connection() as conn:
+        ensure_shopping_session(sessionId, conn)
         rows = conn.execute(
             """
             SELECT id, order_number, customer_name, payment_method, total_price,
@@ -1813,22 +1900,26 @@ def admin_list_orders():
 
 @app.patch("/api/admin/orders/{order_id}/status")
 def admin_update_order_status(order_id: int, request: OrderStatusRequest):
-    allowed = {"주문 접수", "결제 확인", "배송 준비", "배송 중", "배송 완료", "주문 취소"}
-    if request.status not in allowed:
+    if request.status not in ORDER_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid order status.")
 
     with get_connection() as conn:
-        row = conn.execute(
+        current = conn.execute(
+            "SELECT status FROM orders WHERE id = %s",
+            [order_id],
+        ).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Order not found.")
+
+        conn.execute(
             """
             UPDATE orders
             SET status = %s
             WHERE id = %s
-            RETURNING id
             """,
             [request.status, order_id],
-        ).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Order not found.")
+        )
+        record_order_status_history(conn, order_id, current["status"], request.status, "admin-api")
     return order_from_id(order_id)
 
 
@@ -1933,7 +2024,7 @@ async def ai_recommend(request: RecommendRequest):
     )
     answer = await call_ai(prompt)
     product_ids = [product["id"] for product in candidates]
-    save_ai_log(request.message, answer, product_ids)
+    save_ai_log(request.message, answer, product_ids, session_id=session_id, request_type="recommend")
     return {
         "answer": answer,
         "products": candidates,
@@ -1977,7 +2068,12 @@ async def ai_compare(request: CompareRequest):
         settings,
     )
     answer = await call_ai(prompt)
-    save_ai_log(request.criteria or "상품 비교", answer, [product["id"] for product in products])
+    save_ai_log(
+        request.criteria or "상품 비교",
+        answer,
+        [product["id"] for product in products],
+        request_type="compare",
+    )
     return {"answer": answer, "products": products}
 
 
@@ -2001,5 +2097,10 @@ async def ai_review_summary(request: ReviewSummaryRequest):
     review_lines = format_reviews_for_prompt(reviews, review_budget)
     prompt = render_prompt(template, {"product_name": product["name"], "reviews": review_lines})
     answer = await call_ai(prompt)
-    save_ai_log(f"리뷰 요약: {product['name']}", answer, [product["id"]])
+    save_ai_log(
+        f"리뷰 요약: {product['name']}",
+        answer,
+        [product["id"]],
+        request_type="review_summary",
+    )
     return {"answer": answer, "product": product}
