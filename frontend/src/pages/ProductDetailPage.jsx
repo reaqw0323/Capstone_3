@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { requestReviewSummary } from "../api/ai";
 import { fetchProduct, fetchProductReviews } from "../api/products";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { useAiState } from "../context/AiStateContext";
 import { useCart } from "../context/CartContext";
 import { useCompare } from "../context/CompareContext";
 
@@ -13,11 +13,14 @@ export default function ProductDetailPage() {
   const productId = Number(id);
   const { compareIds, toggleCompare } = useCompare();
   const { addToCart, lastMessage, setLastMessage } = useCart();
+  const { reviewSummaries, startReviewSummary } = useAiState();
   const [product, setProduct] = useState(null);
   const [reviews, setReviews] = useState([]);
-  const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(true);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const summaryTask = reviewSummaries[String(productId)];
+  const summary = summaryTask?.status === "done" ? summaryTask.answer : "";
+  const summaryLoading = summaryTask?.status === "loading";
+  const summaryError = summaryTask?.status === "error" ? summaryTask.error : "";
 
   useEffect(() => {
     setLoading(true);
@@ -30,13 +33,7 @@ export default function ProductDetailPage() {
   }, [productId]);
 
   const summarize = async () => {
-    setSummaryLoading(true);
-    try {
-      const result = await requestReviewSummary(productId);
-      setSummary(result.answer);
-    } finally {
-      setSummaryLoading(false);
-    }
+    await startReviewSummary(productId);
   };
 
   if (loading) return <LoadingSpinner />;
@@ -121,12 +118,15 @@ export default function ProductDetailPage() {
           <div className="section-header">
             <h2>AI 리뷰 요약</h2>
             <button className="button secondary" onClick={summarize} disabled={summaryLoading} type="button">
-              요약하기
+              {summaryLoading ? "요약 중" : "요약하기"}
             </button>
           </div>
           {summaryLoading && <LoadingSpinner label="리뷰를 요약하고 있습니다" />}
+          {summaryError && <p className="error-text">{summaryError}</p>}
           {summary && <div className="ai-result-box">{summary}</div>}
-          {!summary && !summaryLoading && <p className="empty-text">리뷰 요약 버튼을 눌러 AI 요약을 확인하세요.</p>}
+          {!summary && !summaryLoading && !summaryError && (
+            <p className="empty-text">리뷰 요약 버튼을 눌러 AI 요약을 확인하세요.</p>
+          )}
         </div>
       </section>
 

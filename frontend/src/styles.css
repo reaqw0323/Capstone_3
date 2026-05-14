@@ -599,6 +599,11 @@ textarea {
   text-align: center;
 }
 
+.chat-thread {
+  display: grid;
+  gap: 8px;
+}
+
 .chat-message {
   width: min(760px, 100%);
   padding: 14px;
@@ -670,6 +675,12 @@ textarea {
 .chat-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.chat-tools {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .loading {

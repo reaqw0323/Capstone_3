@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
-import { requestAiCompare } from "../api/ai";
 import { fetchCompareProducts } from "../api/products";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ProductCompareTable from "../components/ProductCompareTable";
+import { useAiState } from "../context/AiStateContext";
 import { useCompare } from "../context/CompareContext";
 
 export default function ComparePage() {
   const { compareIds, clearCompare } = useCompare();
+  const { compareTask, compareMatches, startCompare } = useAiState();
   const [products, setProducts] = useState([]);
   const [criteria, setCriteria] = useState("가격, 스펙, 평점, 리뷰 기준으로 비교해줘");
-  const [aiAnswer, setAiAnswer] = useState("");
   const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
   const selectedCategories = Array.from(new Set(products.map((product) => product.category).filter(Boolean)));
   const hasMixedCategories = selectedCategories.length > 1;
+  const currentCompareTask = compareMatches(compareIds) ? compareTask : null;
+  const aiLoading = currentCompareTask?.status === "loading";
+  const aiAnswer = currentCompareTask?.status === "done" ? currentCompareTask.answer : "";
+  const aiError = currentCompareTask?.status === "error" ? currentCompareTask.error : "";
 
   useEffect(() => {
     if (compareIds.length === 0) {
@@ -27,20 +30,8 @@ export default function ComparePage() {
   }, [compareIds]);
 
   const askAi = async () => {
-    if (hasMixedCategories) {
-      setAiAnswer(
-        `선택한 상품의 카테고리가 서로 달라 AI 비교 설명을 만들 수 없습니다.\n선택된 카테고리: ${selectedCategories.join(", ")}\n같은 카테고리 상품끼리 선택해 주세요.`
-      );
-      return;
-    }
-    setAiLoading(true);
-    setAiAnswer("");
-    try {
-      const result = await requestAiCompare(compareIds, criteria);
-      setAiAnswer(result.answer);
-    } finally {
-      setAiLoading(false);
-    }
+    if (hasMixedCategories) return;
+    await startCompare(compareIds, criteria);
   };
 
   return (
@@ -71,12 +62,13 @@ export default function ComparePage() {
         <button
           className="button primary"
           onClick={askAi}
-          disabled={aiLoading || compareIds.length < 2 || hasMixedCategories}
+          disabled={compareTask.status === "loading" || compareIds.length < 2 || hasMixedCategories}
           type="button"
         >
-          AI 비교 설명 요청
+          {compareTask.status === "loading" ? "비교 설명 생성 중" : "AI 비교 설명 요청"}
         </button>
         {aiLoading && <LoadingSpinner label="AI가 비교 설명을 작성하고 있습니다" />}
+        {aiError && <p className="error-text">{aiError}</p>}
         {aiAnswer && <div className="ai-result-box">{aiAnswer}</div>}
       </section>
     </div>

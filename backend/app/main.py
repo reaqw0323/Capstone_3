@@ -28,21 +28,24 @@ app.add_middleware(
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "easypick-ai")
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
 LMSTUDIO_MODEL = os.getenv("LMSTUDIO_MODEL", "local-model")
 LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY", "")
 LMSTUDIO_TIMEOUT_SECONDS = float(os.getenv("LMSTUDIO_TIMEOUT_SECONDS", "240"))
+LMSTUDIO_CONTEXT_LENGTH = int(os.getenv("LMSTUDIO_CONTEXT_LENGTH", "8192"))
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "900"))
+PROMPT_CONTEXT_BUFFER_TOKENS = int(os.getenv("PROMPT_CONTEXT_BUFFER_TOKENS", "1200"))
+PROMPT_CHAR_BUDGET = int(os.getenv("PROMPT_CHAR_BUDGET", "0"))
 PROMPT_DIR = Path(os.getenv("PROMPT_DIR", "/app/ai_prompts"))
 
 AI_SYSTEM_PROMPT = (
     "너는 EasyPick의 한국어 쇼핑 도우미다. "
+    "친근하고 자연스럽게 말하되, 상품 정보는 정확하게 다룬다. "
     "사고 과정은 숨기고 최종 답변만 한국어로 작성한다. "
     "상품 후보에 없는 정보는 만들지 않는다. "
-    "후보 전체를 나열하지 말고 사용자 조건에 맞는 상품만 선별한다. "
-    "사용자가 요청한 추천 개수를 반드시 지킨다. "
-    "스펙 키나 값이 영어로 제공되어도 설명 문장은 한국어로 작성한다. "
-    "영어 문장으로 답하지 않는다."
+    "사용자가 짧게 말해도 의도를 잘 파악하고, 필요한 기준을 쉽게 잡아준다. "
+    "추천, 비교, 리뷰 요약 모두 사용자가 실제로 고르기 쉬워지도록 설명한다."
 )
 
 LMSTUDIO_PROVIDER_NAMES = {"lmstudio", "lm-studio", "lm_studio"}
@@ -187,14 +190,14 @@ def read_prompt(name: str, fallback: str) -> str:
 def final_answer_instructions() -> str:
     return (
         "공통 답변 지시:\n"
-        "- 사고 과정, 추론 과정, 내부 검토 내용은 출력하지 마세요.\n"
-        "- 최종 답변만 한국어로 작성하세요.\n"
-        "- 상품명과 브랜드명을 제외한 모든 설명은 한국어로만 작성하세요.\n"
-        "- 제공된 상품 후보에 없는 상품명, 가격, 스펙, 평점, 리뷰, 배송, 할인 정보는 절대 쓰지 마세요.\n"
-        "- 말투는 자연스러운 쇼핑 상담원처럼 하되, 광고처럼 과장하지 마세요.\n"
-        "- 사용자가 요청한 추천 개수와 조건을 우선 지키세요.\n"
-        "- 후보 상품은 참고 자료입니다. 모든 후보를 소개하지 말고 조건에 맞는 상품만 선별하세요.\n"
-        "- 정보가 부족한 항목은 추측하지 말고 '제공된 정보만으로는 확인하기 어렵습니다'라고 말하세요.\n\n"
+        "- 내부 추론 과정은 출력하지 말고 최종 답변만 한국어로 작성하세요.\n"
+        "- EasyPick DB에서 제공된 상품, 가격, 스펙, 리뷰, 상세설명, 추천대상, 주의사항만 근거로 사용하세요.\n"
+        "- 없는 배송, 할인, AS, 장기 내구성, 외부 쇼핑몰 정보는 만들지 마세요.\n"
+        "- 정보가 부족하면 딱딱하게 거절하지 말고 '제공된 정보만으로는 확인하기 어렵습니다'라고 자연스럽게 말하세요.\n"
+        "- 말투는 친근한 쇼핑 상담원처럼 부드럽게 하세요. 사용자가 짧게 말해도 의도를 잘 받아주고, 필요한 경우 기준을 쉽게 잡아주세요.\n"
+        "- 답변은 템플릿처럼 반복하지 말고 질문의 분위기에 맞게 짧게 또는 자세히 조절하세요.\n"
+        "- 장점만 밀어붙이지 말고, 확인할 점도 솔직하게 알려주세요.\n"
+        "- 마지막에는 사용자가 다음 선택을 할 수 있게 결론을 분명하게 정리하세요.\n\n"
     )
 
 
@@ -206,6 +209,27 @@ def clean_ai_answer(answer: str) -> str:
         if index > 0:
             cleaned = cleaned[index:]
             break
+    internal_markers = [
+        "사용자 의도 파악",
+        "제약 조건 확인",
+        "후보 상품 분석",
+        "전략 수립",
+        "추천 순서 및 근거",
+        "답변 구성",
+        "Thinking Process",
+    ]
+    if any(marker in cleaned[:800] for marker in internal_markers):
+        starts = [
+            cleaned.find("혹시"),
+            cleaned.find("좋아요"),
+            cleaned.find("네,"),
+            cleaned.find("일단"),
+            cleaned.find("현재"),
+            cleaned.find("###"),
+        ]
+        visible_start = min([index for index in starts if index >= 0] or [-1])
+        if visible_start > 0:
+            cleaned = cleaned[visible_start:].strip()
     if cleaned.lower().startswith(("okay,", "let's", "we need", "the user")):
         korean_index = min(
             [idx for idx in [cleaned.find("1."), cleaned.find("추천"), cleaned.find("제공된")] if idx >= 0]
@@ -795,26 +819,136 @@ def format_specs(specs: dict[str, Any], keys: list[str] | None = None) -> str:
     return ", ".join(humanize_spec(key, value) for key, value in items)
 
 
-def format_products_for_prompt(products: list[dict[str, Any]]) -> str:
-    lines = []
-    for index, product in enumerate(products, start=1):
-        specs = format_specs(product["specs"])
-        detail_description = product.get("detail_description") or "정보 없음"
-        recommended_for = product.get("recommended_for") or "정보 없음"
-        cautions = product.get("cautions") or "정보 없음"
-        lines.append(
-            f"{index}. 상품명: {product['name']}\n"
-            f"   브랜드: {product['brand']}\n"
-            f"   가격: {product['price']}원\n"
-            f"   카테고리: {product['category']}\n"
-            f"   상세설명: {detail_description}\n"
-            f"   추천대상: {recommended_for}\n"
-            f"   주의사항: {cautions}\n"
-            f"   주요 스펙: {specs}\n"
-            f"   평점: {product['rating']}점, 리뷰 수: {product['review_count']}개\n"
-            f"   리뷰 요약: {review_summary_text(product['id'])}"
+def compact_prompt_text(value: Any, max_chars: int = 260) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars].rstrip()
+    sentence_end = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"), cut.rfind("다."))
+    if sentence_end >= max_chars * 0.55:
+        cut = cut[: sentence_end + 1].rstrip()
+    return f"{cut}..."
+
+
+def prompt_char_budget(settings: dict[str, Any] | None = None) -> int:
+    if PROMPT_CHAR_BUDGET > 0:
+        return PROMPT_CHAR_BUDGET
+
+    try:
+        active_settings = settings or get_ai_settings()
+        provider = normalize_ai_provider(active_settings.get("provider"))
+    except Exception:
+        provider = normalize_ai_provider(AI_PROVIDER)
+
+    context_tokens = LMSTUDIO_CONTEXT_LENGTH if provider == "lmstudio" else OLLAMA_NUM_CTX
+    usable_tokens = max(1200, context_tokens - PROMPT_CONTEXT_BUFFER_TOKENS)
+    return max(2200, int(usable_tokens * 0.9))
+
+
+def render_prompt(template: str, fields: dict[str, Any]) -> str:
+    return final_answer_instructions() + template.format(**fields)
+
+
+def product_prompt_card(product: dict[str, Any], index: int, detail_level: str = "full") -> str:
+    name = product.get("name") or "상품명 없음"
+    brand = product.get("brand") or "브랜드 정보 없음"
+    category = product.get("category") or "카테고리 정보 없음"
+    price = f"{int(product.get('price') or 0):,}원"
+    short_description = compact_prompt_text(product.get("short_description"), 180)
+    detail_description = compact_prompt_text(product.get("detail_description"), 260)
+    recommended_for = compact_prompt_text(product.get("recommended_for"), 220)
+    cautions = compact_prompt_text(product.get("cautions"), 220)
+    specs = compact_prompt_text(format_specs(product.get("specs") or {}), 260)
+    review_summary = compact_prompt_text(review_summary_text(product["id"]), 360)
+    rating = product.get("rating")
+    review_count = product.get("review_count")
+
+    first_line = (
+        f"{index}. {name}은 {brand}의 {category} 상품입니다. "
+        f"가격은 {price}이고, 한마디로 보면 {short_description or '기본 정보가 많지는 않은 후보'}입니다."
+    )
+
+    if detail_level == "compact":
+        return (
+            f"{first_line} 주요 스펙은 {specs or '제공된 정보가 적습니다'}. "
+            f"평점은 {rating}점, 리뷰는 {review_count}개입니다."
         )
-    return "\n\n".join(lines)
+
+    lines = [
+        first_line,
+        f"   주요 스펙은 {specs or '제공된 정보가 적습니다'}.",
+        f"   사용자 반응은 평점 {rating}점, 리뷰 {review_count}개 기준으로 볼 수 있습니다.",
+    ]
+
+    if recommended_for:
+        lines.append(f"   추천 대상은 {recommended_for}.")
+    if cautions:
+        lines.append(f"   주의할 점은 {cautions}.")
+
+    if detail_level == "full":
+        if detail_description:
+            lines.append(f"   상세 설명을 자연스럽게 풀면 {detail_description}.")
+        if review_summary:
+            lines.append(f"   리뷰를 훑어보면 {review_summary}.")
+
+    return "\n".join(lines)
+
+
+def format_products_for_prompt(
+    products: list[dict[str, Any]],
+    detail_level: str = "full",
+    max_count: int | None = None,
+) -> str:
+    selected = products[:max_count] if max_count else products
+    if not selected:
+        return "현재 조회된 상품 후보가 없습니다."
+    return "\n\n".join(
+        product_prompt_card(product, index, detail_level)
+        for index, product in enumerate(selected, start=1)
+    )
+
+
+def build_prompt_with_products(
+    template: str,
+    fields: dict[str, Any],
+    products: list[dict[str, Any]],
+    settings: dict[str, Any] | None = None,
+) -> str:
+    budget = prompt_char_budget(settings)
+    if not products:
+        return render_prompt(template, {**fields, "products": format_products_for_prompt(products)})
+
+    for detail_level in ("full", "balanced", "compact"):
+        for max_count in range(len(products), 0, -1):
+            product_text = format_products_for_prompt(products, detail_level, max_count)
+            prompt = render_prompt(template, {**fields, "products": product_text})
+            if len(prompt) <= budget:
+                return prompt
+
+    product_text = product_prompt_card(products[0], 1, "compact")
+    note = (
+        "상품 후보 설명이 길어져서, 컨텍스트 한도 안에서 가장 가까운 후보부터 담았습니다.\n\n"
+    )
+    return render_prompt(template, {**fields, "products": note + product_text})
+
+
+def format_reviews_for_prompt(reviews: list[dict[str, Any]], max_chars: int) -> str:
+    lines: list[str] = []
+    for review in reviews:
+        line = (
+            f"- {review['user_name']}님은 평점 {review['rating']}점을 줬고, "
+            f"리뷰 내용은 '{compact_prompt_text(review['content'], 260)}'입니다. "
+            f"좋게 본 점은 {compact_prompt_text(review.get('pros'), 120) or '정보 없음'}, "
+            f"아쉬운 점은 {compact_prompt_text(review.get('cons'), 120) or '정보 없음'}입니다."
+        )
+        next_text = "\n".join(lines + [line])
+        if lines and len(next_text) > max_chars:
+            lines.append("리뷰가 길어 컨텍스트 한도 안에서 앞쪽 리뷰까지만 담았습니다.")
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def default_ai_settings() -> dict[str, Any]:
@@ -1070,11 +1204,21 @@ async def ensure_lmstudio_model_loaded(settings: dict[str, Any]) -> None:
             model_id = item.get("key") or item.get("id")
             if model_id == target_model and item.get("loaded_instances"):
                 return
+        load_payload = {
+            "model": target_model,
+            "config": {"context_length": LMSTUDIO_CONTEXT_LENGTH},
+        }
         load_response = await client.post(
             f"{root_url}/api/v1/models/load",
-            json={"model": target_model},
+            json=load_payload,
             headers=headers,
         )
+        if load_response.status_code in {400, 404, 422}:
+            load_response = await client.post(
+                f"{root_url}/api/v1/models/load",
+                json={"model": target_model},
+                headers=headers,
+            )
         load_response.raise_for_status()
 
 
@@ -1090,7 +1234,7 @@ async def call_ollama(prompt: str, settings: dict[str, Any] | None = None) -> st
         "think": False,
         "options": {
             "temperature": 0.2,
-            "num_predict": 700,
+            "num_predict": AI_MAX_TOKENS,
             "num_ctx": OLLAMA_NUM_CTX,
         },
     }
@@ -1113,7 +1257,7 @@ async def call_ollama(prompt: str, settings: dict[str, Any] | None = None) -> st
 async def call_lmstudio(
     prompt: str,
     settings: dict[str, Any] | None = None,
-    max_tokens: int = 420,
+    max_tokens: int | None = None,
 ) -> str:
     settings = settings or get_ai_settings()
     payload = {
@@ -1123,8 +1267,10 @@ async def call_lmstudio(
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
-        "max_tokens": max_tokens,
+        "max_tokens": max_tokens or AI_MAX_TOKENS,
         "stream": False,
+        "reasoning_effort": "none",
+        "reasoning": {"effort": "none"},
     }
     headers = lmstudio_headers(settings)
     try:
@@ -1139,7 +1285,36 @@ async def call_lmstudio(
             )
             response.raise_for_status()
             data = response.json()
-            answer = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            answer = message.get("content") or ""
+            if not answer.strip() and message.get("reasoning_content"):
+                retry_payload = {
+                    **payload,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                f"{AI_SYSTEM_PROMPT} 내부 추론이나 Thinking Process를 쓰지 말고, "
+                                "사용자에게 보여줄 최종 답변 본문만 바로 작성한다."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                "아래 요청에 대해 내부 추론 없이 최종 답변만 한국어로 작성하세요.\n\n"
+                                f"{prompt}"
+                            ),
+                        },
+                    ],
+                }
+                retry_response = await client.post(
+                    f"{lmstudio_openai_url(settings['lmstudio_base_url'])}/chat/completions",
+                    json=retry_payload,
+                    headers=headers,
+                )
+                retry_response.raise_for_status()
+                retry_data = retry_response.json()
+                answer = retry_data["choices"][0]["message"].get("content") or ""
     except (httpx.HTTPError, KeyError, IndexError, TypeError):
         return (
             "AI 서버에 연결하지 못했습니다. LM Studio에서 Local Server를 켜고 "
@@ -1155,250 +1330,6 @@ async def call_ai(prompt: str) -> str:
     if settings["provider"] == "ollama":
         return await call_ollama(prompt, settings)
     return "AI_PROVIDER는 ollama 또는 lmstudio 중 하나로 설정해 주세요."
-
-
-def needs_korean_fallback(answer: str) -> bool:
-    if not answer.strip():
-        return True
-    if answer.startswith("AI 서버에 연결하지 못했습니다"):
-        return True
-    lowered = answer.lower().strip()
-    english_markers = [
-        "okay,",
-        "let's",
-        "the user",
-        "we need",
-        "first,",
-        "so,",
-        "here",
-        "based on",
-        "recommend",
-        "comparison",
-        "summary",
-    ]
-    if lowered.startswith(tuple(english_markers)):
-        return True
-    korean_chars = len(re.findall(r"[가-힣]", answer))
-    latin_chars = len(re.findall(r"[A-Za-z]", answer))
-    english_words = re.findall(
-        r"\b(the|and|or|is|are|this|that|with|for|because|price|review|rating|product|recommend|compare|user|based|summary|pros|cons)\b",
-        lowered,
-    )
-    if len(english_words) >= 4:
-        return True
-    return korean_chars < 40 and latin_chars > korean_chars
-
-
-def fallback_recommendation(
-    products: list[dict[str, Any]],
-    user_message: str,
-    requested_count: int | None = None,
-    usage_context: str | None = None,
-) -> str:
-    count = requested_count or 3
-    count = max(1, min(count, len(products), 5))
-    top_products = products[:count]
-    lines = [
-        f"요청하신 조건에 맞춰 {count}개를 골랐습니다.",
-        "",
-        "추천 상품",
-    ]
-    for index, product in enumerate(top_products, start=1):
-        specs = format_specs(product["specs"])
-        lines.extend(
-            [
-                f"{index}. {product['name']}",
-                f"   - 가격: {product['price']:,}원",
-                f"   - 추천 이유: 평점 {product['rating']}점, 리뷰 {product['review_count']}개, 주요 스펙({specs})을 기준으로 조건에 잘 맞습니다.",
-                f"   - 장점: {product['short_description']}",
-                "   - 아쉬운 점: 제공된 정보만으로는 장기 내구성이나 실제 배송 만족도는 확인하기 어렵습니다.",
-                "   - 구매 전 확인할 점: 실제 사용 공간, 필요한 기능, 소음과 무게 조건을 확인하세요.",
-            ]
-        )
-        if usage_context:
-            lines.append(f"   - 사용 목적 적합성: '{usage_context}' 조건을 우선 고려했습니다.")
-        lines.append("")
-    lines.extend(
-        [
-            "최종 한 줄 추천",
-            f"- '{user_message}' 조건에서는 {top_products[0]['name']}를 먼저 확인하는 것이 좋습니다.",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def wants_price_only(criteria: str | None) -> bool:
-    text = (criteria or "").replace(" ", "")
-    return "가격" in text and any(word in text for word in ["만", "싼", "최저", "저렴"])
-
-
-def wants_beginner_explanation(criteria: str | None) -> bool:
-    text = criteria or ""
-    beginner_words = ["몰라", "모르", "쉽게", "초보", "지식", "설명", "비교설명", "알려"]
-    return any(word in text for word in beginner_words)
-
-
-def parse_refresh_rate(value: Any) -> int:
-    match = re.search(r"(\d+)", str(value or ""))
-    return int(match.group(1)) if match else 0
-
-
-def spec_summary(product: dict[str, Any]) -> str:
-    specs = product.get("specs") or {}
-    category = product.get("category")
-    if category == "모니터":
-        keys = ["Size", "Resolution", "RefreshRate", "Panel", "Ratio", "Color"]
-    elif category == "노트북":
-        keys = ["CPU", "GPU", "RAM", "Storage", "Display", "Weight", "RefreshRate"]
-    elif category == "무선청소기":
-        keys = ["Suction", "Runtime", "Weight", "Filter", "Dustbin"]
-    elif category == "공기청정기":
-        keys = ["Coverage", "Filter", "Sensor", "Noise", "Mode"]
-    else:
-        keys = list(specs.keys())[:5]
-    parts = [humanize_spec(key, specs[key]) for key in keys if specs.get(key)]
-    return ", ".join(parts) if parts else "제공된 핵심 스펙이 많지 않습니다"
-
-
-def beginner_spec_notes(products: list[dict[str, Any]]) -> list[str]:
-    keys = {key for product in products for key in (product.get("specs") or {}).keys()}
-    notes: list[str] = []
-    if "RefreshRate" in keys:
-        notes.append("주사율(RefreshRate)은 화면이 1초에 몇 번 새로 그려지는지 보는 숫자입니다. 높을수록 움직임이 더 부드럽게 보일 수 있어 게임이나 빠른 화면에서 체감이 납니다.")
-    if "Resolution" in keys:
-        notes.append("해상도(Resolution)는 화면이 얼마나 촘촘하게 보이는지에 가깝습니다. QHD, 4K처럼 올라갈수록 글자와 이미지가 더 세밀하게 보일 수 있습니다.")
-    if "Panel" in keys:
-        notes.append("패널(Panel)은 화면의 색감, 명암, 시야각에 영향을 주는 방식입니다. IPS는 색감과 시야각, VA는 명암비 쪽을 볼 때 자주 비교합니다.")
-    if "Ratio" in keys:
-        notes.append("화면 비율(Ratio)은 화면의 가로세로 형태입니다. 21:9처럼 넓은 화면은 여러 창을 나란히 띄우는 작업에 유리할 수 있습니다.")
-    if "Color" in keys:
-        notes.append("색 영역(Color)은 색을 얼마나 넓게 표현하는지 보는 기준입니다. 디자인이나 색 보정 작업에서는 참고할 만합니다.")
-    if "CPU" in keys:
-        notes.append("CPU는 노트북의 두뇌처럼 전체 작업을 처리하는 부품입니다.")
-    if "GPU" in keys:
-        notes.append("GPU는 게임 화면이나 그래픽 작업을 처리하는 부품입니다.")
-    if "RAM" in keys:
-        notes.append("RAM은 책상 넓이처럼 여러 작업을 동시에 펼쳐두는 여유 공간에 가깝습니다.")
-    return notes[:5]
-
-
-def fallback_compare(products: list[dict[str, Any]], criteria: str | None) -> str:
-    categories = sorted({product.get("category") or "카테고리 없음" for product in products})
-    criteria_text = criteria or "가격, 스펙, 평점, 리뷰 기준으로 비교"
-    if len(categories) > 1:
-        return (
-            "이 조합은 바로 순위를 매기기 어렵습니다.\n"
-            f"선택된 카테고리가 {', '.join(categories)}로 서로 달라요. 노트북과 모니터처럼 쓰임새가 다른 상품은 가격이나 스펙 숫자만 놓고 '이게 더 좋다'고 말하면 결론이 이상해질 수 있습니다.\n\n"
-            "같은 카테고리 상품끼리 선택하면 가격, 스펙, 평점, 리뷰를 훨씬 자연스럽게 비교해드릴 수 있습니다."
-        )
-
-    sorted_by_price = sorted(products, key=lambda item: item["price"])
-    cheapest = sorted_by_price[0]
-    highest_rating = max(products, key=lambda item: item["rating"])
-    category = categories[0]
-
-    if wants_price_only(criteria):
-        lines = [
-            f"{category} 상품을 가격 기준으로만 보면 이렇게 정리됩니다.",
-            "",
-            "| 순위 | 상품 | 가격 | 차이 |",
-            "| --- | --- | ---: | --- |",
-        ]
-        for index, product in enumerate(sorted_by_price, start=1):
-            gap = product["price"] - cheapest["price"]
-            gap_text = "최저가" if gap == 0 else f"최저가보다 {gap:,}원 높음"
-            lines.append(f"| {index} | {product['name']} | {product['price']:,}원 | {gap_text} |")
-        lines.extend(
-            [
-                "",
-                f"가격만 보면 {cheapest['name']}가 가장 부담이 적습니다.",
-                "다만 가격만으로는 화면 품질, 부드러움, 사용 목적 적합성까지 판단하기 어렵습니다. 가격 비교만 원하셨으니 여기서는 다른 기준으로 순위를 바꾸지는 않겠습니다.",
-            ]
-        )
-        return "\n".join(lines)
-
-    lines = [
-        f"{category} {len(products)}개를 비교해볼게요.",
-    ]
-    if wants_beginner_explanation(criteria):
-        lines.append("스펙 용어가 낯설 수 있으니, 먼저 어려운 말부터 쉽게 풀어서 볼게요.")
-        notes = beginner_spec_notes(products)
-        if notes:
-            lines.extend(["", "스펙을 쉽게 보면"])
-            lines.extend(f"- {note}" for note in notes)
-
-    lines.extend(
-        [
-            "",
-            "한눈에 비교하면",
-            "| 상품 | 가격 | 핵심 스펙 | 평점/리뷰 |",
-            "| --- | ---: | --- | --- |",
-        ]
-    )
-    for product in products:
-        lines.append(
-            f"| {product['name']} | {product['price']:,}원 | {spec_summary(product)} | "
-            f"{product['rating']}점 / 리뷰 {product['review_count']}개 |"
-        )
-
-    lines.extend(["", "상품별로 쉽게 말하면"])
-    for product in products:
-        lines.append(
-            f"- {product['name']}: {product['price']:,}원이고, 핵심 스펙은 {spec_summary(product)}입니다. "
-            f"평점은 {product['rating']}점, 리뷰는 {product['review_count']}개라서 이 정도 사용자 반응이 쌓여 있습니다."
-        )
-
-    lines.extend(["", "기준별로 보면"])
-    lines.append(f"- 가격 부담을 가장 줄이고 싶다면 {cheapest['name']}가 먼저 보입니다.")
-    if category == "모니터":
-        refresh_candidates = [
-            product for product in products if (product.get("specs") or {}).get("RefreshRate")
-        ]
-        if refresh_candidates:
-            smoothest = max(refresh_candidates, key=lambda item: parse_refresh_rate((item.get("specs") or {}).get("RefreshRate")))
-            lines.append(f"- 화면 움직임의 부드러움을 중시하면 주사율이 높은 {smoothest['name']}를 먼저 볼 만합니다.")
-        resolution_priority = {"4K UHD": 4, "UWQHD": 3, "QHD": 2, "FHD": 1}
-        resolution_candidates = [
-            product for product in products if (product.get("specs") or {}).get("Resolution")
-        ]
-        if resolution_candidates:
-            sharpest = max(
-                resolution_candidates,
-                key=lambda item: resolution_priority.get(str((item.get("specs") or {}).get("Resolution")), 0),
-            )
-            lines.append(f"- 선명도나 작업 공간을 중시하면 해상도 기준으로 {sharpest['name']}도 확인할 만합니다.")
-    lines.append(f"- 평점만 보면 {highest_rating['name']}가 가장 높지만, 평점 차이가 작다면 가격과 스펙을 같이 보는 편이 좋습니다.")
-    lines.extend(
-        [
-            "",
-            "최종적으로는",
-            f"- 가격과 무난한 만족도를 같이 보면 {cheapest['name']}를 먼저 확인해볼 만합니다."
-            if cheapest == highest_rating
-            else f"- 가격을 중시하면 {cheapest['name']}, 사용자 반응을 중시하면 {highest_rating['name']} 쪽을 먼저 비교해보면 됩니다.",
-            "- 제공된 정보 외 배송, 할인, AS, 장기 내구성은 확인하기 어렵습니다.",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def fallback_review_summary(product: dict[str, Any], reviews: list[dict[str, Any]]) -> str:
-    pros = [review.get("pros") for review in reviews if review.get("pros")]
-    cons = [review.get("cons") for review in reviews if review.get("cons")]
-    return "\n".join(
-        [
-            "1. 반복적으로 언급된 장점",
-            *(f"   - {item}" for item in pros[:3]),
-            "",
-            "2. 반복적으로 언급된 아쉬운 점",
-            *(f"   - {item}" for item in cons[:3]),
-            "",
-            "3. 구매 전 확인할 점",
-            "   - 리뷰에 없는 고장 사례, 배송 품질, 장기 내구성은 제공된 정보만으로는 확인하기 어렵습니다.",
-            "",
-            "4. 한 줄 요약",
-            f"   - {product['name']}는 제공된 리뷰 기준으로 장단점이 비교적 명확한 상품입니다.",
-        ]
-    )
 
 
 def save_ai_log(message: str, answer: str, product_ids: list[int]) -> None:
@@ -1927,24 +1858,13 @@ async def ai_recommend(request: RecommendRequest):
             },
         }
 
-    if not is_shopping_intent(request.message, category, min_price, max_price):
-        return {
-            "answer": "어떤 상품을 찾으시는지 예산, 용도, 카테고리를 알려주시면 EasyPick DB 상품 안에서만 추천해드릴게요.",
-            "products": [],
-            "filters": {
-                "category": category,
-                "minPrice": min_price,
-                "maxPrice": max_price,
-                "requestedCount": requested_count,
-                "usageContext": usage_context,
-            },
-        }
-
+    candidate_context = "사용자 조건에 맞춰 후보를 조회했습니다."
     if is_cart_order_intent(request.message) and cart and cart.get("items") and not category:
         candidates = cart_products_for_response(cart)[:10]
+        candidate_context = "장바구니 상품을 중심으로 후보를 제공했습니다."
     else:
         candidates = search_products(
-            query=None if category else request.message,
+            query=None if category or min_price is not None or max_price is not None else request.message,
             category=category,
             min_price=min_price,
             max_price=max_price,
@@ -1953,32 +1873,53 @@ async def ai_recommend(request: RecommendRequest):
         )
 
     if not candidates:
-        return {
-            "answer": "조건에 맞는 상품을 찾지 못했습니다. 예산이나 카테고리를 조금 넓혀서 다시 검색해 주세요.",
-            "products": [],
-            "filters": {
-                "category": category,
-                "minPrice": min_price,
-                "maxPrice": max_price,
-                "requestedCount": requested_count,
-                "usageContext": usage_context,
-            },
-        }
+        if category:
+            candidates = search_products(category=category, sort="rating", limit=10)
+            candidate_context = (
+                "요청한 가격이나 세부 조건에 딱 맞는 상품은 찾지 못해, "
+                "같은 카테고리 안에서 가까운 후보를 넓게 제공했습니다."
+            )
+        elif min_price is not None or max_price is not None:
+            candidates = search_products(
+                min_price=min_price,
+                max_price=max_price,
+                sort="rating",
+                limit=10,
+            )
+            candidate_context = (
+                "카테고리가 명확하지 않아 가격 조건에 맞는 후보를 넓게 제공했습니다."
+            )
+        else:
+            candidates = []
+
+    if not candidates:
+        candidates = search_products(sort="rating", limit=8)
+        candidate_context = (
+            "사용자 질문이 특정 상품 조건으로 정확히 매칭되지 않았거나 쇼핑과 직접 관련이 적어, "
+            "EasyPick의 대표 후보를 제공했습니다. 답변에서는 질문을 자연스럽게 받아주고 "
+            "EasyPick에서 도와줄 수 있는 쇼핑 탐색으로 연결하세요."
+        )
 
     template = read_prompt(
         "recommend_prompt.txt",
-        "사용자 질문:\n{message}\n\n요청 추천 개수:\n{requested_count}\n\n사용 목적/선호 조건:\n{usage_context}\n\n상품 후보:\n{products}\n\n반드시 한국어로 답변하세요.",
+        "사용자 질문:\n{message}\n\n요청 추천 개수:\n{requested_count}\n\n사용 목적/선호 조건:\n{usage_context}\n\n후보 선택 상황:\n{candidate_context}\n\n상품 후보:\n{products}\n\n반드시 한국어로 답변하세요.",
     )
-    prompt = final_answer_instructions() + template.format(
-        message=request.message,
-        requested_count=f"{requested_count}개" if requested_count else "사용자가 지정하지 않음. 기본 3개 이하로 선별",
-        usage_context=usage_context or "명확히 제공되지 않음",
-        user_context=user_context,
-        products=format_products_for_prompt(candidates),
+    settings = get_ai_settings()
+    prompt = build_prompt_with_products(
+        template,
+        {
+            "message": request.message,
+            "requested_count": f"{requested_count}개"
+            if requested_count
+            else "사용자가 지정하지 않음. 기본 3개 이하로 선별",
+            "usage_context": usage_context or "명확히 제공되지 않음",
+            "candidate_context": candidate_context,
+            "user_context": user_context,
+        },
+        candidates,
+        settings,
     )
     answer = await call_ai(prompt)
-    if needs_korean_fallback(answer):
-        answer = fallback_recommendation(candidates, request.message, requested_count, usage_context)
     product_ids = [product["id"] for product in candidates]
     save_ai_log(request.message, answer, product_ids)
     return {
@@ -2016,13 +1957,14 @@ async def ai_compare(request: CompareRequest):
         "compare_prompt.txt",
         "사용자 비교 기준:\n{criteria}\n\n비교 상품:\n{products}\n\n한국어로 답변하세요.",
     )
-    prompt = final_answer_instructions() + template.format(
-        criteria=request.criteria or "가격, 스펙, 평점, 리뷰 기준으로 비교",
-        products=format_products_for_prompt(products),
+    settings = get_ai_settings()
+    prompt = build_prompt_with_products(
+        template,
+        {"criteria": request.criteria or "가격, 스펙, 평점, 리뷰 기준으로 비교"},
+        products,
+        settings,
     )
     answer = await call_ai(prompt)
-    if needs_korean_fallback(answer):
-        answer = fallback_compare(products, request.criteria)
     save_ai_log(request.criteria or "상품 비교", answer, [product["id"] for product in products])
     return {"answer": answer, "products": products}
 
@@ -2036,18 +1978,16 @@ async def ai_review_summary(request: ReviewSummaryRequest):
     if not reviews:
         return {"answer": "아직 등록된 리뷰가 없습니다.", "product": product}
 
-    review_lines = "\n".join(
-        f"- {review['user_name']} / 평점 {review['rating']}: {review['content']} "
-        f"(장점: {review.get('pros') or '정보 없음'}, 단점: {review.get('cons') or '정보 없음'})"
-        for review in reviews
-    )
     template = read_prompt(
         "review_summary_prompt.txt",
         "상품명:\n{product_name}\n\n리뷰:\n{reviews}\n\n한국어로 요약하세요.",
     )
-    prompt = final_answer_instructions() + template.format(product_name=product["name"], reviews=review_lines)
+    settings = get_ai_settings()
+    budget = prompt_char_budget(settings)
+    base_prompt = render_prompt(template, {"product_name": product["name"], "reviews": ""})
+    review_budget = max(1200, budget - len(base_prompt))
+    review_lines = format_reviews_for_prompt(reviews, review_budget)
+    prompt = render_prompt(template, {"product_name": product["name"], "reviews": review_lines})
     answer = await call_ai(prompt)
-    if needs_korean_fallback(answer):
-        answer = fallback_review_summary(product, reviews)
     save_ai_log(f"리뷰 요약: {product['name']}", answer, [product["id"]])
     return {"answer": answer, "product": product}

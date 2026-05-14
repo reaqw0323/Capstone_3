@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { requestRecommendation } from "../api/ai";
+import { useAiState } from "../context/AiStateContext";
 import { useCart } from "../context/CartContext";
 
 const examples = [
@@ -12,10 +12,9 @@ const examples = [
 
 export default function AiChatBox({ initialMessage = "" }) {
   const { addToCart, sessionId } = useCart();
+  const { assistantHistory, assistantLoading, askAssistant, clearAssistantHistory } = useAiState();
   const [message, setMessage] = useState(initialMessage);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const displayedHistory = assistantHistory.slice().reverse();
 
   useEffect(() => {
     setMessage(initialMessage);
@@ -26,22 +25,8 @@ export default function AiChatBox({ initialMessage = "" }) {
     const userMessage = message.trim();
     if (!userMessage) return;
 
-    setLoading(true);
-    setError("");
-    setHistory((current) => [...current, { role: "user", content: userMessage }]);
     setMessage("");
-
-    try {
-      const result = await requestRecommendation(userMessage, sessionId);
-      setHistory((current) => [
-        ...current,
-        { role: "assistant", content: result.answer, products: result.products || [] },
-      ]);
-    } catch {
-      setError("AI 추천 요청 중 오류가 발생했습니다. 백엔드와 Ollama 상태를 확인해 주세요.");
-    } finally {
-      setLoading(false);
-    }
+    await askAssistant(userMessage, sessionId);
   };
 
   return (
@@ -55,46 +40,59 @@ export default function AiChatBox({ initialMessage = "" }) {
       </div>
 
       <div className="chat-history">
-        {history.length === 0 && (
+        {displayedHistory.length === 0 && (
           <div className="assistant-empty">
-            예산, 용도, 카테고리를 함께 말하면 DB 상품 안에서만 추천합니다.
+            예산, 용도, 카테고리를 함께 말하면 DB 상품 안에서만 추천합니다. 최근 답변은 5개까지 유지됩니다.
           </div>
         )}
-        {history.map((item, index) => (
-          <div key={`${item.role}-${index}`} className={`chat-message ${item.role}`}>
-            <div className="chat-role-label">
-              {item.role === "user" ? "나" : "AI 쇼핑 도우미"}
+        {displayedHistory.map((item) => (
+          <div key={item.id} className="chat-thread">
+            <div className="chat-message user">
+              <div className="chat-role-label">나</div>
+              <pre>{item.question}</pre>
             </div>
-            <pre>{item.content}</pre>
-            {item.products?.length > 0 && (
-              <div className="mini-products">
-                {item.products.slice(0, 4).map((product) => (
-                  <div key={product.id} className="mini-product">
-                    <Link to={`/products/${product.id}`} className="mini-product-link">
-                      <img src={product.image_url} alt={product.name} />
-                      <span>{product.name}</span>
-                      <strong>{product.price.toLocaleString("ko-KR")}원</strong>
-                    </Link>
-                    <button className="button secondary" type="button" onClick={() => addToCart(product.id, 1)}>
-                      담기
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+
+            <div className="chat-message assistant">
+              <div className="chat-role-label">AI 쇼핑 도우미</div>
+              {item.status === "loading" ? (
+                <div className="chat-typing">
+                  <span /><span /><span />
+                </div>
+              ) : item.status === "error" ? (
+                <p className="error-text">{item.error}</p>
+              ) : (
+                <>
+                  <pre>{item.answer}</pre>
+                  {item.products?.length > 0 && (
+                    <div className="mini-products">
+                      {item.products.slice(0, 4).map((product) => (
+                        <div key={product.id} className="mini-product">
+                          <Link to={`/products/${product.id}`} className="mini-product-link">
+                            <img src={product.image_url} alt={product.name} />
+                            <span>{product.name}</span>
+                            <strong>{product.price.toLocaleString("ko-KR")}원</strong>
+                          </Link>
+                          <button className="button secondary" type="button" onClick={() => addToCart(product.id, 1)}>
+                            담기
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         ))}
-        {loading && (
-          <div className="chat-message">
-            <div className="chat-role-label">AI 쇼핑 도우미</div>
-            <div className="chat-typing">
-              <span /><span /><span />
-            </div>
-          </div>
-        )}
       </div>
 
-      {error && <p className="error-text">{error}</p>}
+      {displayedHistory.length > 0 && (
+        <div className="chat-tools">
+          <button className="button secondary" type="button" onClick={clearAssistantHistory} disabled={assistantLoading}>
+            최근 답변 비우기
+          </button>
+        </div>
+      )}
 
       <form className="chat-input-row" onSubmit={submit}>
         <input
@@ -102,8 +100,8 @@ export default function AiChatBox({ initialMessage = "" }) {
           onChange={(event) => setMessage(event.target.value)}
           placeholder="예: 20만 원 이하 무선청소기 추천해줘"
         />
-        <button className="button primary" disabled={loading} type="submit">
-          질문하기
+        <button className="button primary" disabled={assistantLoading} type="submit">
+          {assistantLoading ? "답변 생성 중" : "질문하기"}
         </button>
       </form>
     </section>
