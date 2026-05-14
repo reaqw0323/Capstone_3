@@ -4,7 +4,7 @@ EasyPick AI는 캡스톤디자인 발표용으로 만든 로컬 AI 쇼핑/가격
 사용자는 상품을 검색하고, 상세 정보를 확인하고, 여러 상품을 비교하고, 장바구니에 담아 주문 시뮬레이션까지 진행할 수 있습니다.
 AI 기능은 외부 유료 API 없이 Docker 안의 Ollama와 `qwen3:4b` 기반 전용 모델 `easypick-ai`로 실행됩니다.
 원하면 관리자 페이지에서 LM Studio의 로컬 OpenAI 호환 서버로도 바꿔 실행할 수 있습니다.
-자연스럽고 친근한 쇼핑 상담 말투는 LM Studio의 `gemma-4-e4b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
+노트북 시연용 모델은 LM Studio의 `gemma-4-e2b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
 
 처음 실행하는 팀원은 먼저 [START_HERE.md](./START_HERE.md)를 보면 됩니다.
 GPU 자동 감지 실행은 [GPU_AUTO_RUN.md](./GPU_AUTO_RUN.md)를 보면 됩니다.
@@ -93,8 +93,8 @@ EasyPick은 두 가지 로컬 AI 서버를 지원합니다.
 
 현재 프로젝트에서 자연스럽고 친근한 쇼핑 상담 말투를 원하면 LM Studio의 아래 모델을 권장합니다.
 
-- 권장 모델명: `gemma-4-e4b-uncensored-hauhaucs-aggressive`
-- LM Studio 표시 이름: `Gemma 4 E4B Uncensored HauhauCS Aggressive`
+- 권장 모델명: `gemma-4-e2b-uncensored-hauhaucs-aggressive`
+- LM Studio 표시 이름: `Gemma 4 E2B Uncensored HauhauCS Aggressive Q2 K P`
 - 실제 LM Studio 모델 ID는 다운로드한 모델에 따라 다를 수 있습니다.
 - 일반 `google/gemma-4-e4b`는 환경에 따라 `content`가 비고 `reasoning_content`로 빠지는 출력 문제가 생길 수 있어 팀원 설치용 기본 권장 모델에서는 제외합니다.
 - Gemma4 E2B는 빠르지만 긴 한국어 답변이 중간에 끊기거나 말투 제어가 약할 수 있습니다.
@@ -113,7 +113,7 @@ Ollama 대신 LM Studio를 쓰려면 LM Studio에서 모델을 다운로드한 �
 ```env
 AI_PROVIDER=lmstudio
 LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
-LMSTUDIO_MODEL=gemma-4-e4b-uncensored-hauhaucs-aggressive
+LMSTUDIO_MODEL=gemma-4-e2b-uncensored-hauhaucs-aggressive
 LMSTUDIO_API_KEY=
 LMSTUDIO_CONTEXT_LENGTH=8192
 AI_MAX_TOKENS=900

@@ -93,12 +93,12 @@ docker compose up ollama-init
 ## 5. 선택 실행: LM Studio 사용
 
 LM Studio를 쓰면 Docker의 Ollama 대신, 현재 PC에 설치된 LM Studio 모델을 EasyPick에서 사용할 수 있습니다.
-특히 자연스럽고 친근한 답변 품질은 `gemma-4-e4b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
+특히 노트북 시연에서는 `gemma-4-e2b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
 
 권장 모델:
 
-- 모델 ID: `gemma-4-e4b-uncensored-hauhaucs-aggressive`
-- LM Studio 표시 이름: `Gemma 4 E4B Uncensored HauhauCS Aggressive`
+- 모델 ID: `gemma-4-e2b-uncensored-hauhaucs-aggressive`
+- LM Studio 표시 이름: `Gemma 4 E2B Uncensored HauhauCS Aggressive Q2 K P`
 - LM Studio에 표시되는 실제 모델 ID는 설치한 모델에 따라 다를 수 있습니다.
 
 참고:
@@ -139,7 +139,7 @@ http://localhost:1234/v1
 ```env
 AI_PROVIDER=lmstudio
 LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
-LMSTUDIO_MODEL=gemma-4-e4b-uncensored-hauhaucs-aggressive
+LMSTUDIO_MODEL=gemma-4-e2b-uncensored-hauhaucs-aggressive
 LMSTUDIO_API_KEY=
 LMSTUDIO_CONTEXT_LENGTH=8192
 AI_MAX_TOKENS=900
@@ -305,7 +305,7 @@ LM Studio 사용 중이면 아래를 확인합니다.
 
 - `.env`에서 `AI_MAX_TOKENS=1200` 또는 `AI_MAX_TOKENS=1600`으로 올려봅니다.
 - Gemma4 E2B처럼 작은 모델은 긴 한국어 답변이 중간에 끊길 수 있습니다.
-- 자연스럽고 긴 쇼핑 상담 답변은 `gemma-4-e4b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
+- 노트북 시연에서는 `gemma-4-e2b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
 - GPU 메모리가 부족하면 `LMSTUDIO_CONTEXT_LENGTH` 또는 `OLLAMA_NUM_CTX`를 4096으로 낮춰봅니다.
 
 ### GPU를 안 쓰는 경우

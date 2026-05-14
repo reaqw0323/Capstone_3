@@ -1858,8 +1858,17 @@ async def ai_recommend(request: RecommendRequest):
             },
         }
 
+    shopping_intent = is_shopping_intent(request.message, category, min_price, max_price)
+    cart_order_intent = is_cart_order_intent(request.message)
     candidate_context = "사용자 조건에 맞춰 후보를 조회했습니다."
-    if is_cart_order_intent(request.message) and cart and cart.get("items") and not category:
+    if not shopping_intent and not cart_order_intent:
+        candidates = []
+        candidate_context = (
+            "사용자가 아직 상품 카테고리, 예산, 용도 같은 쇼핑 조건을 말하지 않았습니다. "
+            "이 경우 특정 상품을 추천하지 말고, 사용자의 말을 짧고 자연스럽게 받아준 뒤 "
+            "원하는 상품 종류나 예산을 물어보세요."
+        )
+    elif cart_order_intent and cart and cart.get("items") and not category:
         candidates = cart_products_for_response(cart)[:10]
         candidate_context = "장바구니 상품을 중심으로 후보를 제공했습니다."
     else:
@@ -1872,7 +1881,7 @@ async def ai_recommend(request: RecommendRequest):
             limit=10,
         )
 
-    if not candidates:
+    if shopping_intent and not candidates:
         if category:
             candidates = search_products(category=category, sort="rating", limit=10)
             candidate_context = (
@@ -1892,7 +1901,7 @@ async def ai_recommend(request: RecommendRequest):
         else:
             candidates = []
 
-    if not candidates:
+    if shopping_intent and not candidates:
         candidates = search_products(sort="rating", limit=8)
         candidate_context = (
             "사용자 질문이 특정 상품 조건으로 정확히 매칭되지 않았거나 쇼핑과 직접 관련이 적어, "
@@ -1905,6 +1914,9 @@ async def ai_recommend(request: RecommendRequest):
         "사용자 질문:\n{message}\n\n요청 추천 개수:\n{requested_count}\n\n사용 목적/선호 조건:\n{usage_context}\n\n후보 선택 상황:\n{candidate_context}\n\n상품 후보:\n{products}\n\n반드시 한국어로 답변하세요.",
     )
     settings = get_ai_settings()
+    prompt_candidate_count = requested_count or 3
+    prompt_candidate_count = max(1, min(prompt_candidate_count, 5))
+    prompt_candidates = candidates[:prompt_candidate_count]
     prompt = build_prompt_with_products(
         template,
         {
@@ -1916,7 +1928,7 @@ async def ai_recommend(request: RecommendRequest):
             "candidate_context": candidate_context,
             "user_context": user_context,
         },
-        candidates,
+        prompt_candidates,
         settings,
     )
     answer = await call_ai(prompt)

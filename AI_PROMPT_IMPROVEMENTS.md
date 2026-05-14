@@ -555,7 +555,7 @@ AI 답변에는 사용자가 보는 상품명만 쓰되, 백엔드 응답에는 
 
 개선 방향:
 
-- `gemma-4-e4b-uncensored-hauhaucs-aggressive`처럼 한국어 상담 말투가 좋은 모델 사용
+- `gemma-4-e2b-uncensored-hauhaucs-aggressive`처럼 노트북 시연에 맞는 가벼운 모델 사용
 - 작은 모델에서 답변이 끊기면 `AI_MAX_TOKENS` 조정
 - 모델이 너무 장황하면 프롬프트에서 상품 개수와 문장 수 제한
 - 실패 응답을 숨기지 말고 로그와 화면에서 바로 확인

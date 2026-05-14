@@ -15,7 +15,7 @@ EasyPick AI는 OpenAI, Gemini, Claude 같은 외부 유료 AI API를 사용하�
 기본 실행은 Docker 환경에서 실행되는 Ollama와 `qwen3:4b` 모델을 사용합니다.
 프로젝트 실행 시 `qwen3:4b`를 다운로드하고, EasyPick 전용 모델인 `easypick-ai`를 생성해 AI 추천, 상품 비교 설명, 리뷰 요약 기능에 활용합니다.
 추가로 관리자 페이지에서 LM Studio를 선택하면, 현재 PC에 설치된 LM Studio 모델을 로컬 OpenAI 호환 서버로 연결할 수 있습니다.
-자연스럽고 친근한 쇼핑 상담 말투는 LM Studio의 `gemma-4-e4b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
+노트북 시연용 로컬 모델은 LM Studio의 `gemma-4-e2b-uncensored-hauhaucs-aggressive` 모델을 권장합니다.
 
 AI는 사용자의 자연어 질문을 바로 외부 검색으로 처리하지 않습니다.
 백엔드가 먼저 PostgreSQL DB에서 조건에 맞는 상품 후보를 조회하고, 그 후보 상품 정보만 AI에게 전달합니다.
@@ -63,7 +63,7 @@ AI는 선택된 상품의 가격, 브랜드, 스펙, 평점, 리뷰 수를 바�
 - Ollama 기반 로컬 AI
 - `qwen3:4b` 기반 EasyPick 전용 모델 `easypick-ai`
 - LM Studio 로컬 서버 선택 지원
-- `gemma-4-e4b-uncensored-hauhaucs-aggressive` 모델 권장
+- `gemma-4-e2b-uncensored-hauhaucs-aggressive` 모델 권장
 
 ## 프로젝트 목표
 
@@ -75,7 +75,7 @@ EasyPick AI의 목표는 단순한 쇼핑몰 화면 구현이 아니라, 실제 
 - 외부 AI API를 사용하지 않는 로컬 AI 쇼핑 도우미
 - DB 상품 후보 안에서만 답변하도록 설계한 환각 방지 구조
 - Ollama와 LM Studio를 관리자 페이지에서 선택할 수 있는 구조
-- `gemma-4-e4b-uncensored-hauhaucs-aggressive` 같은 로컬 모델을 활용한 자연스러운 한국어 쇼핑 상담
+- `gemma-4-e2b-uncensored-hauhaucs-aggressive` 같은 로컬 모델을 활용한 한국어 쇼핑 상담
 - AI 답변 생성 중 페이지 이동해도 상태가 유지되는 사용성 개선
 - Docker Compose 기반 실행으로 팀원 환경 차이를 줄인 점
 - 상품 검색부터 AI 추천, 비교, 장바구니, 주문까지 이어지는 완성형 쇼핑 흐름

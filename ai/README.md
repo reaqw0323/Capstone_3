@@ -60,13 +60,13 @@ http://localhost:1234/v1
 
 자연스럽고 친근한 쇼핑 상담 말투를 원하면 아래 LM Studio 모델을 권장합니다.
 
-- 권장 모델 ID: `gemma-4-e4b-uncensored-hauhaucs-aggressive`
-- LM Studio 표시 이름: `Gemma 4 E4B Uncensored HauhauCS Aggressive`
+- 권장 모델 ID: `gemma-4-e2b-uncensored-hauhaucs-aggressive`
+- LM Studio 표시 이름: `Gemma 4 E2B Uncensored HauhauCS Aggressive Q2 K P`
 - LM Studio에 표시되는 실제 모델 ID는 다운로드한 모델에 따라 달라질 수 있습니다.
 
 모델별 참고:
 
-- Gemma4 E4B Uncensored HauhauCS Aggressive: 현재 EasyPick에서 한국어 쇼핑 상담 말투가 가장 자연스럽게 출력되는 권장 모델입니다.
+- Gemma4 E2B Uncensored HauhauCS Aggressive: 현재 노트북 시연용으로 권장하는 모델입니다.
 - 일반 `google/gemma-4-e4b`: 환경에 따라 답변 본문 `content`가 비고 `reasoning_content`로만 출력되는 문제가 생길 수 있습니다.
 - Gemma4 E2B: 빠르고 가볍지만 긴 한국어 답변이 중간에 끊기거나 말투 제어가 약할 수 있습니다.
 - Qwen 계열: 정보 정리는 괜찮지만, 쇼핑 상담원처럼 부드럽게 풀어 말하는 느낌은 모델/템플릿에 따라 약할 수 있습니다.
