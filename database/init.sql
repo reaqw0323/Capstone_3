@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS ai_logs;
+DROP TABLE IF EXISTS ai_settings;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS cart_items;
@@ -21,6 +22,9 @@ CREATE TABLE products (
   original_price INTEGER CHECK (original_price >= 0),
   image_url TEXT NOT NULL,
   short_description TEXT,
+  detail_description TEXT NOT NULL DEFAULT '',
+  recommended_for TEXT NOT NULL DEFAULT '',
+  cautions TEXT NOT NULL DEFAULT '',
   specs JSONB NOT NULL DEFAULT '{}'::jsonb,
   rating NUMERIC(2,1) NOT NULL DEFAULT 0,
   review_count INTEGER NOT NULL DEFAULT 0,
@@ -81,6 +85,25 @@ CREATE TABLE ai_logs (
   ai_response TEXT NOT NULL,
   product_ids INTEGER[] DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE ai_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  provider VARCHAR(30) NOT NULL DEFAULT 'ollama',
+  ollama_base_url TEXT NOT NULL DEFAULT 'http://ollama:11434',
+  ollama_model TEXT NOT NULL DEFAULT 'easypick-ai',
+  lmstudio_base_url TEXT NOT NULL DEFAULT 'http://host.docker.internal:1234/v1',
+  lmstudio_model TEXT NOT NULL DEFAULT 'local-model',
+  lmstudio_api_key TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO ai_settings (
+  id, provider, ollama_base_url, ollama_model,
+  lmstudio_base_url, lmstudio_model, lmstudio_api_key
+) VALUES (
+  1, 'ollama', 'http://ollama:11434', 'easypick-ai',
+  'http://host.docker.internal:1234/v1', 'local-model', ''
 );
 
 CREATE INDEX idx_products_category ON products(category_id);

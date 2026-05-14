@@ -25,9 +25,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "easypick-ai")
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").rstrip("/")
+LMSTUDIO_MODEL = os.getenv("LMSTUDIO_MODEL", "local-model")
+LMSTUDIO_API_KEY = os.getenv("LMSTUDIO_API_KEY", "")
+LMSTUDIO_TIMEOUT_SECONDS = float(os.getenv("LMSTUDIO_TIMEOUT_SECONDS", "240"))
 PROMPT_DIR = Path(os.getenv("PROMPT_DIR", "/app/ai_prompts"))
+
+AI_SYSTEM_PROMPT = (
+    "너는 EasyPick의 한국어 쇼핑 도우미다. "
+    "사고 과정은 숨기고 최종 답변만 한국어로 작성한다. "
+    "상품 후보에 없는 정보는 만들지 않는다. "
+    "후보 전체를 나열하지 말고 사용자 조건에 맞는 상품만 선별한다. "
+    "사용자가 요청한 추천 개수를 반드시 지킨다. "
+    "스펙 키나 값이 영어로 제공되어도 설명 문장은 한국어로 작성한다. "
+    "영어 문장으로 답하지 않는다."
+)
+
+LMSTUDIO_PROVIDER_NAMES = {"lmstudio", "lm-studio", "lm_studio"}
+
+
+def normalize_ai_provider(provider: str | None) -> str:
+    value = (provider or "ollama").strip().lower()
+    if value in LMSTUDIO_PROVIDER_NAMES:
+        return "lmstudio"
+    return "ollama" if value == "ollama" else value
+
+
+def trim_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+def lmstudio_root_url(base_url: str) -> str:
+    url = trim_url(base_url)
+    return url[:-3] if url.endswith("/v1") else url
+
+
+def lmstudio_openai_url(base_url: str) -> str:
+    url = trim_url(base_url)
+    return url if url.endswith("/v1") else f"{url}/v1"
+
+
+def normalize_lmstudio_base_url(base_url: str) -> str:
+    return lmstudio_openai_url(base_url)
 
 CATEGORY_KEYWORDS = {
     "노트북": ["노트북", "랩탑", "코딩", "과제", "휴대용 작업"],
@@ -56,6 +99,20 @@ class ReviewSummaryRequest(BaseModel):
     product_id: int
 
 
+class AiSettingsRequest(BaseModel):
+    provider: str = Field(default="ollama", min_length=1)
+    ollama_base_url: str = Field(default="http://ollama:11434", min_length=1)
+    ollama_model: str = Field(default="easypick-ai", min_length=1)
+    lmstudio_base_url: str = Field(default="http://host.docker.internal:1234/v1", min_length=1)
+    lmstudio_model: str = Field(default="local-model", min_length=1)
+    lmstudio_api_key: str | None = None
+
+
+class AiUnloadRequest(BaseModel):
+    provider: str = Field(..., min_length=1)
+    model: str | None = None
+
+
 class ProductWriteRequest(BaseModel):
     name: str = Field(..., min_length=1)
     brand: str = Field(..., min_length=1)
@@ -64,6 +121,9 @@ class ProductWriteRequest(BaseModel):
     original_price: int | None = Field(default=None, ge=0)
     image_url: str = Field(default="/assets/laptop.svg", min_length=1)
     short_description: str = ""
+    detail_description: str = ""
+    recommended_for: str = ""
+    cautions: str = ""
     specs: dict[str, Any] = Field(default_factory=dict)
     rating: float = Field(default=0, ge=0, le=5)
     review_count: int = Field(default=0, ge=0)
@@ -108,6 +168,13 @@ def product_from_row(row: dict[str, Any]) -> dict[str, Any]:
     product = normalize(dict(row))
     product["category"] = product.pop("category_name", None)
     return product
+
+
+def ensure_product_extra_columns() -> None:
+    with get_connection() as conn:
+        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS detail_description TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS recommended_for TEXT NOT NULL DEFAULT ''")
+        conn.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS cautions TEXT NOT NULL DEFAULT ''")
 
 
 def read_prompt(name: str, fallback: str) -> str:
@@ -260,6 +327,7 @@ def search_products(
     sort: str | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
+    ensure_product_extra_columns()
     where = []
     params: list[Any] = []
 
@@ -317,6 +385,7 @@ def search_products(
 
 
 def get_product(product_id: int) -> dict[str, Any] | None:
+    ensure_product_extra_columns()
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -333,6 +402,7 @@ def get_product(product_id: int) -> dict[str, Any] | None:
 def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     if not product_ids:
         return []
+    ensure_product_extra_columns()
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -729,11 +799,17 @@ def format_products_for_prompt(products: list[dict[str, Any]]) -> str:
     lines = []
     for index, product in enumerate(products, start=1):
         specs = format_specs(product["specs"])
+        detail_description = product.get("detail_description") or "정보 없음"
+        recommended_for = product.get("recommended_for") or "정보 없음"
+        cautions = product.get("cautions") or "정보 없음"
         lines.append(
             f"{index}. 상품명: {product['name']}\n"
             f"   브랜드: {product['brand']}\n"
             f"   가격: {product['price']}원\n"
             f"   카테고리: {product['category']}\n"
+            f"   상세설명: {detail_description}\n"
+            f"   추천대상: {recommended_for}\n"
+            f"   주의사항: {cautions}\n"
             f"   주요 스펙: {specs}\n"
             f"   평점: {product['rating']}점, 리뷰 수: {product['review_count']}개\n"
             f"   리뷰 요약: {review_summary_text(product['id'])}"
@@ -741,22 +817,273 @@ def format_products_for_prompt(products: list[dict[str, Any]]) -> str:
     return "\n\n".join(lines)
 
 
-async def call_ollama(prompt: str) -> str:
+def default_ai_settings() -> dict[str, Any]:
+    return {
+        "provider": normalize_ai_provider(AI_PROVIDER),
+        "ollama_base_url": OLLAMA_BASE_URL,
+        "ollama_model": OLLAMA_MODEL,
+        "lmstudio_base_url": normalize_lmstudio_base_url(LMSTUDIO_BASE_URL),
+        "lmstudio_model": LMSTUDIO_MODEL,
+        "lmstudio_api_key": LMSTUDIO_API_KEY,
+    }
+
+
+def ensure_ai_settings_table() -> None:
+    defaults = default_ai_settings()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_settings (
+                id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                provider VARCHAR(30) NOT NULL DEFAULT 'ollama',
+                ollama_base_url TEXT NOT NULL DEFAULT 'http://ollama:11434',
+                ollama_model TEXT NOT NULL DEFAULT 'easypick-ai',
+                lmstudio_base_url TEXT NOT NULL DEFAULT 'http://host.docker.internal:1234/v1',
+                lmstudio_model TEXT NOT NULL DEFAULT 'local-model',
+                lmstudio_api_key TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO ai_settings (
+                id, provider, ollama_base_url, ollama_model,
+                lmstudio_base_url, lmstudio_model, lmstudio_api_key
+            )
+            VALUES (1, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            [
+                defaults["provider"],
+                defaults["ollama_base_url"],
+                defaults["ollama_model"],
+                defaults["lmstudio_base_url"],
+                defaults["lmstudio_model"],
+                defaults["lmstudio_api_key"],
+            ],
+        )
+
+
+def get_ai_settings() -> dict[str, Any]:
+    ensure_ai_settings_table()
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT provider, ollama_base_url, ollama_model,
+                   lmstudio_base_url, lmstudio_model, lmstudio_api_key, updated_at
+            FROM ai_settings
+            WHERE id = 1
+            """
+        ).fetchone()
+    settings = dict(row or default_ai_settings())
+    settings["provider"] = normalize_ai_provider(settings.get("provider"))
+    settings["ollama_base_url"] = trim_url(settings.get("ollama_base_url") or OLLAMA_BASE_URL)
+    settings["lmstudio_base_url"] = normalize_lmstudio_base_url(
+        settings.get("lmstudio_base_url") or LMSTUDIO_BASE_URL
+    )
+    settings["lmstudio_api_key"] = settings.get("lmstudio_api_key") or ""
+    return settings
+
+
+def save_ai_settings(request: AiSettingsRequest) -> dict[str, Any]:
+    provider = normalize_ai_provider(request.provider)
+    if provider not in {"ollama", "lmstudio"}:
+        raise HTTPException(status_code=400, detail="provider는 ollama 또는 lmstudio여야 합니다.")
+
+    ensure_ai_settings_table()
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE ai_settings
+            SET provider = %s,
+                ollama_base_url = %s,
+                ollama_model = %s,
+                lmstudio_base_url = %s,
+                lmstudio_model = %s,
+                lmstudio_api_key = %s,
+                updated_at = NOW()
+            WHERE id = 1
+            RETURNING provider, ollama_base_url, ollama_model,
+                      lmstudio_base_url, lmstudio_model, lmstudio_api_key, updated_at
+            """,
+            [
+                provider,
+                trim_url(request.ollama_base_url),
+                request.ollama_model.strip(),
+                normalize_lmstudio_base_url(request.lmstudio_base_url),
+                request.lmstudio_model.strip(),
+                request.lmstudio_api_key or "",
+            ],
+        ).fetchone()
+    return dict(row)
+
+
+def lmstudio_headers(settings: dict[str, Any]) -> dict[str, str]:
+    if settings.get("lmstudio_api_key"):
+        return {"Authorization": f"Bearer {settings['lmstudio_api_key']}"}
+    return {}
+
+
+async def unload_ollama_model(settings: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    target_model = model or settings["ollama_model"]
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.post(
+                f"{settings['ollama_base_url']}/api/generate",
+                json={"model": target_model, "prompt": "", "stream": False, "keep_alive": 0},
+            )
+            response.raise_for_status()
+        return {"provider": "ollama", "model": target_model, "ok": True}
+    except httpx.HTTPError as exc:
+        return {
+            "provider": "ollama",
+            "model": target_model,
+            "ok": False,
+            "detail": str(exc),
+        }
+
+
+async def unload_lmstudio_model(settings: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    target_model = model or settings["lmstudio_model"]
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            headers = lmstudio_headers(settings)
+            root_url = lmstudio_root_url(settings["lmstudio_base_url"])
+            models_response = await client.get(f"{root_url}/api/v1/models", headers=headers)
+            models_response.raise_for_status()
+            data = models_response.json()
+            raw_models = data.get("models") or data.get("data") or []
+            instance_ids: list[str] = []
+            for item in raw_models:
+                model_id = item.get("key") or item.get("id")
+                loaded_instances = item.get("loaded_instances") or []
+                loaded_ids = [
+                    instance.get("id")
+                    for instance in loaded_instances
+                    if isinstance(instance, dict) and instance.get("id")
+                ]
+                if target_model == model_id:
+                    instance_ids.extend(loaded_ids)
+                elif target_model in loaded_ids:
+                    instance_ids.append(target_model)
+
+            if not instance_ids:
+                return {
+                    "provider": "lmstudio",
+                    "model": target_model,
+                    "ok": True,
+                    "unloaded": 0,
+                }
+
+            for instance_id in dict.fromkeys(instance_ids):
+                response = await client.post(
+                    f"{root_url}/api/v1/models/unload",
+                    json={"instance_id": instance_id},
+                    headers=headers,
+                )
+                response.raise_for_status()
+        return {
+            "provider": "lmstudio",
+            "model": target_model,
+            "ok": True,
+            "unloaded": len(dict.fromkeys(instance_ids)),
+        }
+    except httpx.HTTPError as exc:
+        return {
+            "provider": "lmstudio",
+            "model": target_model,
+            "ok": False,
+            "detail": str(exc),
+        }
+
+
+async def unload_ai_provider(
+    provider: str,
+    settings: dict[str, Any],
+    model: str | None = None,
+) -> dict[str, Any]:
+    selected_provider = normalize_ai_provider(provider)
+    if selected_provider == "ollama":
+        return await unload_ollama_model(settings, model)
+    if selected_provider == "lmstudio":
+        return await unload_lmstudio_model(settings, model)
+    return {"provider": provider, "model": model, "ok": False, "detail": "Unknown provider."}
+
+
+async def unload_lmstudio_other_models(
+    settings: dict[str, Any],
+    keep_model: str,
+) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            headers = lmstudio_headers(settings)
+            root_url = lmstudio_root_url(settings["lmstudio_base_url"])
+            models_response = await client.get(f"{root_url}/api/v1/models", headers=headers)
+            models_response.raise_for_status()
+            data = models_response.json()
+            raw_models = data.get("models") or data.get("data") or []
+            instance_ids: list[str] = []
+            for item in raw_models:
+                model_id = item.get("key") or item.get("id")
+                if model_id == keep_model:
+                    continue
+                loaded_instances = item.get("loaded_instances") or []
+                instance_ids.extend(
+                    instance.get("id")
+                    for instance in loaded_instances
+                    if isinstance(instance, dict) and instance.get("id")
+                )
+
+            for instance_id in dict.fromkeys(instance_ids):
+                response = await client.post(
+                    f"{root_url}/api/v1/models/unload",
+                    json={"instance_id": instance_id},
+                    headers=headers,
+                )
+                response.raise_for_status()
+        return {
+            "provider": "lmstudio",
+            "model": keep_model,
+            "ok": True,
+            "unloaded": len(dict.fromkeys(instance_ids)),
+        }
+    except httpx.HTTPError as exc:
+        return {
+            "provider": "lmstudio",
+            "model": keep_model,
+            "ok": False,
+            "detail": str(exc),
+        }
+
+
+async def ensure_lmstudio_model_loaded(settings: dict[str, Any]) -> None:
+    headers = lmstudio_headers(settings)
+    root_url = lmstudio_root_url(settings["lmstudio_base_url"])
+    target_model = settings["lmstudio_model"]
+    async with httpx.AsyncClient(timeout=90) as client:
+        models_response = await client.get(f"{root_url}/api/v1/models", headers=headers)
+        models_response.raise_for_status()
+        data = models_response.json()
+        raw_models = data.get("models") or data.get("data") or []
+        for item in raw_models:
+            model_id = item.get("key") or item.get("id")
+            if model_id == target_model and item.get("loaded_instances"):
+                return
+        load_response = await client.post(
+            f"{root_url}/api/v1/models/load",
+            json={"model": target_model},
+            headers=headers,
+        )
+        load_response.raise_for_status()
+
+
+async def call_ollama(prompt: str, settings: dict[str, Any] | None = None) -> str:
+    settings = settings or get_ai_settings()
     payload = {
-        "model": OLLAMA_MODEL,
+        "model": settings["ollama_model"],
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "너는 EasyPick의 한국어 쇼핑 도우미다. "
-                    "사고 과정은 숨기고 최종 답변만 한국어로 작성한다. "
-                    "상품 후보에 없는 정보는 만들지 않는다. "
-                    "후보 전체를 나열하지 말고 사용자 조건에 맞는 상품만 선별한다. "
-                    "사용자가 요청한 추천 개수를 반드시 지킨다. "
-                    "스펙 키나 값이 영어로 제공되어도 설명 문장은 한국어로 작성한다. "
-                    "영어 문장으로 답하지 않는다."
-                ),
-            },
+            {"role": "system", "content": AI_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
         "stream": False,
@@ -764,12 +1091,13 @@ async def call_ollama(prompt: str) -> str:
         "options": {
             "temperature": 0.2,
             "num_predict": 700,
-            "num_ctx": 8192,
+            "num_ctx": OLLAMA_NUM_CTX,
         },
     }
     try:
+        await unload_lmstudio_other_models(settings, keep_model="")
         async with httpx.AsyncClient(timeout=90) as client:
-            response = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
+            response = await client.post(f"{settings['ollama_base_url']}/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPError:
@@ -782,8 +1110,57 @@ async def call_ollama(prompt: str) -> str:
     return clean_ai_answer(answer)
 
 
+async def call_lmstudio(
+    prompt: str,
+    settings: dict[str, Any] | None = None,
+    max_tokens: int = 420,
+) -> str:
+    settings = settings or get_ai_settings()
+    payload = {
+        "model": settings["lmstudio_model"],
+        "messages": [
+            {"role": "system", "content": AI_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+    headers = lmstudio_headers(settings)
+    try:
+        await unload_ai_provider("ollama", settings)
+        await unload_lmstudio_other_models(settings, settings["lmstudio_model"])
+        await ensure_lmstudio_model_loaded(settings)
+        async with httpx.AsyncClient(timeout=LMSTUDIO_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{lmstudio_openai_url(settings['lmstudio_base_url'])}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+            answer = data["choices"][0]["message"]["content"]
+    except (httpx.HTTPError, KeyError, IndexError, TypeError):
+        return (
+            "AI 서버에 연결하지 못했습니다. LM Studio에서 Local Server를 켜고 "
+            "모델이 로드되어 있는지 확인해 주세요."
+        )
+    return clean_ai_answer(answer)
+
+
+async def call_ai(prompt: str) -> str:
+    settings = get_ai_settings()
+    if settings["provider"] == "lmstudio":
+        return await call_lmstudio(prompt, settings)
+    if settings["provider"] == "ollama":
+        return await call_ollama(prompt, settings)
+    return "AI_PROVIDER는 ollama 또는 lmstudio 중 하나로 설정해 주세요."
+
+
 def needs_korean_fallback(answer: str) -> bool:
     if not answer.strip():
+        return True
+    if answer.startswith("AI 서버에 연결하지 못했습니다"):
         return True
     lowered = answer.lower().strip()
     english_markers = [
@@ -1037,7 +1414,121 @@ def save_ai_log(message: str, answer: str, product_ids: list[int]) -> None:
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "ollama_model": OLLAMA_MODEL}
+    settings = get_ai_settings()
+    if settings["provider"] == "lmstudio":
+        ai_model = settings["lmstudio_model"]
+    else:
+        ai_model = settings["ollama_model"]
+    return {"status": "ok", "ai_provider": settings["provider"], "ai_model": ai_model}
+
+
+@app.get("/api/admin/ai-settings")
+def admin_get_ai_settings():
+    return get_ai_settings()
+
+
+@app.put("/api/admin/ai-settings")
+def admin_update_ai_settings(request: AiSettingsRequest):
+    return save_ai_settings(request)
+
+
+@app.get("/api/admin/ai-settings/models")
+async def admin_list_ai_models(
+    provider: str = "ollama",
+    base_url: str | None = None,
+    api_key: str | None = None,
+):
+    selected_provider = normalize_ai_provider(provider)
+    settings = get_ai_settings()
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            if selected_provider == "ollama":
+                url = trim_url(base_url or settings["ollama_base_url"])
+                response = await client.get(f"{url}/api/tags")
+                response.raise_for_status()
+                data = response.json()
+                models = [
+                    {
+                        "id": item.get("name"),
+                        "name": item.get("name"),
+                        "state": "available",
+                        "details": item.get("details") or {},
+                    }
+                    for item in data.get("models", [])
+                    if item.get("name")
+                ]
+                return {"provider": "ollama", "models": models}
+
+            if selected_provider == "lmstudio":
+                url = lmstudio_root_url(base_url or settings["lmstudio_base_url"])
+                response = await client.get(f"{url}/api/v1/models", headers=headers)
+                if response.status_code == 404:
+                    response = await client.get(f"{lmstudio_openai_url(url)}/models", headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                raw_models = data.get("models") or data.get("data") or []
+                models = []
+                for item in raw_models:
+                    model_id = item.get("key") or item.get("id")
+                    model_type = item.get("type")
+                    if model_id and model_type != "embedding":
+                        loaded_instances = item.get("loaded_instances") or []
+                        models.append(
+                            {
+                                "id": model_id,
+                                "name": item.get("display_name") or model_id,
+                                "state": "loaded" if loaded_instances else item.get("state", "available"),
+                                "details": {
+                                    "architecture": item.get("architecture") or item.get("arch"),
+                                    "params": item.get("params_string"),
+                                    "quantization": (item.get("quantization") or {}).get("name")
+                                    if isinstance(item.get("quantization"), dict)
+                                    else item.get("quantization"),
+                                    "max_context_length": item.get("max_context_length"),
+                                },
+                            }
+                        )
+                return {"provider": "lmstudio", "models": models}
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="AI 서버에 연결하지 못했습니다. 주소와 서버 실행 상태를 확인해 주세요.",
+        ) from exc
+
+    raise HTTPException(status_code=400, detail="provider는 ollama 또는 lmstudio여야 합니다.")
+
+
+@app.post("/api/admin/ai-settings/test")
+async def admin_test_ai_settings(request: AiSettingsRequest):
+    settings = {
+        "provider": normalize_ai_provider(request.provider),
+        "ollama_base_url": trim_url(request.ollama_base_url),
+        "ollama_model": request.ollama_model.strip(),
+        "lmstudio_base_url": normalize_lmstudio_base_url(request.lmstudio_base_url),
+        "lmstudio_model": request.lmstudio_model.strip(),
+        "lmstudio_api_key": request.lmstudio_api_key or "",
+    }
+    prompt = "한국어로 '연결 정상'이라고만 답해줘."
+    if settings["provider"] == "lmstudio":
+        answer = await call_lmstudio(prompt, settings, max_tokens=24)
+    elif settings["provider"] == "ollama":
+        answer = await call_ollama(prompt, settings)
+    else:
+        raise HTTPException(status_code=400, detail="provider는 ollama 또는 lmstudio여야 합니다.")
+    if answer.startswith("AI 서버에 연결하지 못했습니다"):
+        raise HTTPException(status_code=502, detail=answer)
+    return {"ok": True, "answer": "연결 정상"}
+
+
+@app.post("/api/admin/ai-settings/unload")
+async def admin_unload_ai_model(request: AiUnloadRequest):
+    settings = get_ai_settings()
+    result = await unload_ai_provider(request.provider, settings, request.model)
+    return result
 
 
 @app.get("/api/categories")
@@ -1106,9 +1597,10 @@ def create_product(request: ProductWriteRequest):
             """
             INSERT INTO products (
                 name, brand, category_id, price, original_price, image_url,
-                short_description, specs, rating, review_count, stock
+                short_description, detail_description, recommended_for, cautions,
+                specs, rating, review_count, stock
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             [
@@ -1119,6 +1611,9 @@ def create_product(request: ProductWriteRequest):
                 request.original_price,
                 request.image_url,
                 request.short_description,
+                request.detail_description,
+                request.recommended_for,
+                request.cautions,
                 Jsonb(request.specs),
                 request.rating,
                 request.review_count,
@@ -1148,6 +1643,9 @@ def update_product(product_id: int, request: ProductWriteRequest):
                 original_price = %s,
                 image_url = %s,
                 short_description = %s,
+                detail_description = %s,
+                recommended_for = %s,
+                cautions = %s,
                 specs = %s,
                 rating = %s,
                 review_count = %s,
@@ -1164,6 +1662,9 @@ def update_product(product_id: int, request: ProductWriteRequest):
                 request.original_price,
                 request.image_url,
                 request.short_description,
+                request.detail_description,
+                request.recommended_for,
+                request.cautions,
                 Jsonb(request.specs),
                 request.rating,
                 request.review_count,
@@ -1475,7 +1976,7 @@ async def ai_recommend(request: RecommendRequest):
         user_context=user_context,
         products=format_products_for_prompt(candidates),
     )
-    answer = await call_ollama(prompt)
+    answer = await call_ai(prompt)
     if needs_korean_fallback(answer):
         answer = fallback_recommendation(candidates, request.message, requested_count, usage_context)
     product_ids = [product["id"] for product in candidates]
@@ -1519,7 +2020,7 @@ async def ai_compare(request: CompareRequest):
         criteria=request.criteria or "가격, 스펙, 평점, 리뷰 기준으로 비교",
         products=format_products_for_prompt(products),
     )
-    answer = await call_ollama(prompt)
+    answer = await call_ai(prompt)
     if needs_korean_fallback(answer):
         answer = fallback_compare(products, request.criteria)
     save_ai_log(request.criteria or "상품 비교", answer, [product["id"] for product in products])
@@ -1545,7 +2046,7 @@ async def ai_review_summary(request: ReviewSummaryRequest):
         "상품명:\n{product_name}\n\n리뷰:\n{reviews}\n\n한국어로 요약하세요.",
     )
     prompt = final_answer_instructions() + template.format(product_name=product["name"], reviews=review_lines)
-    answer = await call_ollama(prompt)
+    answer = await call_ai(prompt)
     if needs_korean_fallback(answer):
         answer = fallback_review_summary(product, reviews)
     save_ai_log(f"리뷰 요약: {product['name']}", answer, [product["id"]])

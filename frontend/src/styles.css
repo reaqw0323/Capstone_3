@@ -789,6 +789,58 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.ai-settings-form {
+  align-items: end;
+}
+
+.ai-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #b7ddd8;
+  border-radius: var(--radius);
+  background: #e8f5f3;
+  color: var(--primary-dark);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.ai-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.ai-model-option {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-model-option:hover,
+.ai-model-option.active {
+  border-color: var(--primary);
+  background: #f0fdfa;
+}
+
+.ai-model-option strong,
+.ai-model-option small {
+  overflow-wrap: anywhere;
+}
+
+.ai-model-option small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .admin-table {
   width: 100%;
   min-width: 860px;
@@ -810,6 +862,25 @@ textarea {
 
 .admin-table tbody tr:hover {
   background: #f8fafc;
+}
+
+.product-extra-info {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.product-extra-info h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.product-extra-info p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+  white-space: pre-line;
 }
 
 .admin-product-cell {
@@ -1097,6 +1168,10 @@ textarea {
   }
 
   .admin-form {
+    grid-template-columns: 1fr;
+  }
+
+  .product-extra-info {
     grid-template-columns: 1fr;
   }
 

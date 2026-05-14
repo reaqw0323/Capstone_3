@@ -3,6 +3,7 @@
 EasyPick AI는 캡스톤디자인 발표용으로 만든 로컬 AI 쇼핑/가격비교 웹서비스입니다.
 사용자는 상품을 검색하고, 상세 정보를 확인하고, 여러 상품을 비교하고, 장바구니에 담아 주문 시뮬레이션까지 진행할 수 있습니다.
 AI 기능은 외부 유료 API 없이 Docker 안의 Ollama와 `qwen3:4b` 기반 전용 모델 `easypick-ai`로 실행됩니다.
+원하면 LM Studio의 로컬 OpenAI 호환 서버로도 바꿔 실행할 수 있습니다.
 
 처음 실행하는 팀원은 먼저 [START_HERE.md](./START_HERE.md)를 보면 됩니다.
 GPU 자동 감지 실행은 [GPU_AUTO_RUN.md](./GPU_AUTO_RUN.md)를 보면 됩니다.
@@ -23,7 +24,7 @@ GPU 자동 감지 실행은 [GPU_AUTO_RUN.md](./GPU_AUTO_RUN.md)를 보면 됩�
 - Frontend: React, Vite, React Router, CSS
 - Backend: FastAPI, psycopg, httpx
 - Database: PostgreSQL
-- Local AI: Ollama, `qwen3:4b`, `easypick-ai`
+- Local AI: Ollama, `qwen3:4b`, `easypick-ai`, LM Studio 선택 지원
 - Infra: Docker Compose
 
 ## 폴더 구조
@@ -71,6 +72,29 @@ powershell -ExecutionPolicy Bypass -File .\start-easypick.ps1
 
 첫 실행에서는 `qwen3:4b` 모델을 다운로드하므로 시간이 오래 걸릴 수 있습니다.
 다운로드가 끝나면 브라우저에서 http://localhost:5173 으로 접속합니다.
+
+## LM Studio로 실행하기
+
+Ollama 대신 LM Studio를 쓰려면 LM Studio에서 모델을 다운로드한 뒤 `Developer` 또는 `Local Server` 화면에서 서버를 켭니다.
+기본 주소는 보통 `http://localhost:1234/v1`입니다.
+
+프로젝트 루트에 `.env` 파일을 만들고 아래처럼 설정합니다.
+
+```env
+AI_PROVIDER=lmstudio
+LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
+LMSTUDIO_MODEL=사용할-LM-Studio-모델명
+LMSTUDIO_API_KEY=
+```
+
+그 다음 백엔드를 다시 올립니다.
+
+```bash
+docker compose up -d --build backend
+```
+
+Docker 밖에서 백엔드를 직접 실행하는 경우에는 `LMSTUDIO_BASE_URL=http://localhost:1234/v1`을 사용하면 됩니다.
+현재 연결된 AI 설정은 http://localhost:8000/api/health 에서 확인할 수 있습니다.
 
 ## 확인 명령어
 

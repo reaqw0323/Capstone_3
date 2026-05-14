@@ -47,6 +47,11 @@ export default function ProductDetailPage() {
     await addToCart(product.id, 1);
     setTimeout(() => setLastMessage(""), 1800);
   };
+  const detailSections = [
+    ["상세설명", product.detail_description],
+    ["추천대상", product.recommended_for],
+    ["주의사항", product.cautions],
+  ].filter(([, value]) => value && String(value).trim());
 
   return (
     <div className="page">
@@ -86,6 +91,17 @@ export default function ProductDetailPage() {
           {lastMessage && <p className="success-text">{lastMessage}</p>}
         </div>
       </section>
+
+      {!!detailSections.length && (
+        <section className="section product-extra-info">
+          {detailSections.map(([title, value]) => (
+            <div key={title}>
+              <h2>{title}</h2>
+              <p>{value}</p>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="section detail-grid">
         <div>

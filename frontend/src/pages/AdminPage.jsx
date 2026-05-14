@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { createProduct, deleteProduct, updateProduct } from "../api/admin";
+import {
+  createProduct,
+  deleteProduct,
+  fetchAiModels,
+  fetchAiSettings,
+  testAiSettings,
+  unloadAiModel,
+  updateAiSettings,
+  updateProduct,
+} from "../api/admin";
 import { fetchAdminOrders, updateOrderStatus } from "../api/orders";
 import { fetchCategories, fetchProducts } from "../api/products";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -13,6 +22,9 @@ const emptyForm = {
   original_price: "",
   image_url: "/assets/laptop.svg",
   short_description: "",
+  detail_description: "",
+  recommended_for: "",
+  cautions: "",
   specs: '{\n  "주요스펙": "값을 입력하세요"\n}',
   rating: "4.0",
   review_count: "0",
@@ -32,6 +44,15 @@ const imageOptions = [
 
 const orderStatuses = ["주문 접수", "결제 확인", "배송 준비", "배송 중", "배송 완료", "주문 취소"];
 
+const defaultAiSettings = {
+  provider: "ollama",
+  ollama_base_url: "http://ollama:11434",
+  ollama_model: "easypick-ai",
+  lmstudio_base_url: "http://host.docker.internal:1234/v1",
+  lmstudio_model: "local-model",
+  lmstudio_api_key: "",
+};
+
 function toForm(product) {
   return {
     name: product.name || "",
@@ -41,6 +62,9 @@ function toForm(product) {
     original_price: product.original_price ? String(product.original_price) : "",
     image_url: product.image_url || "/assets/laptop.svg",
     short_description: product.short_description || "",
+    detail_description: product.detail_description || "",
+    recommended_for: product.recommended_for || "",
+    cautions: product.cautions || "",
     specs: JSON.stringify(product.specs || {}, null, 2),
     rating: String(product.rating || "0"),
     review_count: String(product.review_count || "0"),
@@ -57,6 +81,9 @@ function toPayload(form) {
     original_price: form.original_price === "" ? null : Number(form.original_price),
     image_url: form.image_url,
     short_description: form.short_description.trim(),
+    detail_description: form.detail_description.trim(),
+    recommended_for: form.recommended_for.trim(),
+    cautions: form.cautions.trim(),
     specs: JSON.parse(form.specs || "{}"),
     rating: Number(form.rating),
     review_count: Number(form.review_count),
@@ -69,15 +96,82 @@ export default function AdminPage() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [form, setForm] = useState(emptyForm);
+  const [aiSettings, setAiSettings] = useState(defaultAiSettings);
+  const [aiModels, setAiModels] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiLoadingModels, setAiLoadingModels] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiUnloading, setAiUnloading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiError, setAiError] = useState("");
 
   const categoryMap = useMemo(() => {
     return Object.fromEntries(categories.map((category) => [category.id, category.name]));
   }, [categories]);
+
+  function getAiBaseUrl(settings) {
+    return settings.provider === "lmstudio"
+      ? settings.lmstudio_base_url
+      : settings.ollama_base_url;
+  }
+
+  function getAiModel(settings) {
+    return settings.provider === "lmstudio" ? settings.lmstudio_model : settings.ollama_model;
+  }
+
+  async function loadAiModels(settingsOverride = aiSettings, options = {}) {
+    const settings = { ...defaultAiSettings, ...settingsOverride };
+    const silent = options.silent === true;
+    setAiLoadingModels(true);
+    if (!silent) {
+      setAiMessage("");
+    }
+    setAiError("");
+    setAiModels([]);
+    try {
+      const data = await fetchAiModels(
+        settings.provider,
+        getAiBaseUrl(settings),
+        settings.provider === "lmstudio" ? settings.lmstudio_api_key : ""
+      );
+      const models = data.models || [];
+      setAiModels(models);
+      if (
+        settings.provider === "lmstudio" &&
+        models.length &&
+        !models.some((model) => model.id === settings.lmstudio_model)
+      ) {
+        setAiSettings((current) =>
+          current.provider === "lmstudio" ? { ...current, lmstudio_model: models[0].id } : current
+        );
+      }
+      if (settings.provider === "lmstudio") {
+        setAiMessage(
+          models.length
+            ? `LM Studio 모델 ${models.length}개를 자동으로 불러왔습니다.`
+            : "LM Studio 서버는 감지됐지만 표시할 LLM 모델이 없습니다."
+        );
+      } else if (!silent) {
+        setAiMessage(`${models.length}개 모델을 불러왔습니다.`);
+      }
+    } catch (err) {
+      setAiModels([]);
+      if (settings.provider === "lmstudio") {
+        setAiError(
+          "LM Studio 서버를 찾지 못했습니다. LM Studio에서 Local Server를 켠 뒤 다시 확인해 주세요."
+        );
+      } else if (!silent) {
+        setAiError(err.message || "모델 목록을 불러오지 못했습니다.");
+      }
+    } finally {
+      setAiLoadingModels(false);
+    }
+  }
 
   const loadData = async () => {
     setLoading(true);
@@ -88,9 +182,13 @@ export default function AdminPage() {
         fetchProducts({ sort: "new" }),
         fetchAdminOrders(),
       ]);
+      const aiData = await fetchAiSettings();
+      const loadedAiSettings = { ...defaultAiSettings, ...aiData };
       setCategories(categoryData);
       setProducts(productData);
       setOrders(orderData);
+      setAiSettings(loadedAiSettings);
+      await loadAiModels(loadedAiSettings, { silent: loadedAiSettings.provider !== "lmstudio" });
       if (!form.category_id && categoryData[0]) {
         setForm((current) => ({ ...current, category_id: String(categoryData[0].id) }));
       }
@@ -109,6 +207,83 @@ export default function AdminPage() {
 
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateAiField = (key, value) => {
+    setAiSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  const activeAiModel = getAiModel(aiSettings);
+  const activeModelIsListed = aiModels.some((model) => model.id === activeAiModel);
+
+  const releaseAiProvider = async (provider = aiSettings.provider, settingsOverride = aiSettings, options = {}) => {
+    const silent = options.silent === true;
+    const model =
+      provider === "lmstudio" ? settingsOverride.lmstudio_model : settingsOverride.ollama_model;
+    setAiUnloading(true);
+    if (!silent) {
+      setAiMessage("");
+    }
+    setAiError("");
+    try {
+      const result = await unloadAiModel(provider, model);
+      if (!silent) {
+        setAiMessage(
+          result.ok
+            ? `${provider === "lmstudio" ? "LM Studio" : "Ollama"} 모델 연결을 끊었습니다.`
+            : `${provider === "lmstudio" ? "LM Studio" : "Ollama"} 모델 연결 끊기 요청을 보냈지만 이미 내려가 있거나 응답하지 않습니다.`
+        );
+      }
+      return result;
+    } catch (err) {
+      if (!silent) {
+        setAiError(err.message || "모델 연결 끊기에 실패했습니다.");
+      }
+      return { ok: false };
+    } finally {
+      setAiUnloading(false);
+    }
+  };
+
+  const changeAiProvider = async (nextProvider) => {
+    const previousSettings = aiSettings;
+    const previousProvider = previousSettings.provider;
+    const nextSettings = { ...aiSettings, provider: nextProvider };
+    setAiSettings(nextSettings);
+    setAiMessage(
+      `${previousProvider === "lmstudio" ? "LM Studio" : "Ollama"} 모델 연결을 정리하는 중입니다.`
+    );
+    await releaseAiProvider(previousProvider, previousSettings, { silent: true });
+    await loadAiModels(nextSettings, { silent: false });
+  };
+
+  const saveAiConfig = async () => {
+    setAiSaving(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const saved = await updateAiSettings(aiSettings);
+      setAiSettings({ ...defaultAiSettings, ...saved });
+      setAiMessage("AI 설정이 저장되었습니다.");
+    } catch (err) {
+      setAiError(err.message || "AI 설정 저장 중 오류가 발생했습니다.");
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const testAiConfig = async () => {
+    setAiTesting(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await testAiSettings(aiSettings);
+      setAiMessage(`연결 테스트 성공: ${result.answer}`);
+    } catch (err) {
+      setAiError(err.message || "AI 연결 테스트에 실패했습니다.");
+    } finally {
+      setAiTesting(false);
+    }
   };
 
   const resetForm = () => {
@@ -208,6 +383,176 @@ export default function AdminPage() {
         {loading && <LoadingSpinner label="관리자 데이터를 불러오는 중입니다" />}
         {message && <p className="success-text">{message}</p>}
         {error && <p className="error-text">{error}</p>}
+      </section>
+
+      <section className="section">
+        <div className="section-header">
+          <div>
+            <h2>AI 연결 설정</h2>
+            <p>Ollama와 LM Studio 중 사용할 로컬 AI 서버를 선택합니다.</p>
+          </div>
+          <span className="ai-status-pill">
+            {aiSettings.provider === "lmstudio" ? "LM Studio" : "Ollama"} · {activeAiModel}
+          </span>
+        </div>
+
+        {aiMessage && <p className="success-text">{aiMessage}</p>}
+        {aiError && <p className="error-text">{aiError}</p>}
+
+        <div className="admin-form ai-settings-form">
+          <label>
+            AI 서버
+            <select
+              value={aiSettings.provider}
+              onChange={(event) => {
+                changeAiProvider(event.target.value);
+              }}
+              disabled={aiUnloading}
+            >
+              <option value="ollama">Ollama</option>
+              <option value="lmstudio">LM Studio</option>
+            </select>
+          </label>
+
+          {aiSettings.provider === "ollama" ? (
+            <>
+              <label>
+                Ollama 주소
+                <input
+                  value={aiSettings.ollama_base_url}
+                  onChange={(event) => updateAiField("ollama_base_url", event.target.value)}
+                  placeholder="http://ollama:11434"
+                />
+              </label>
+              <label>
+                Ollama 모델
+                {aiModels.length ? (
+                  <select
+                    value={aiSettings.ollama_model}
+                    onChange={(event) => updateAiField("ollama_model", event.target.value)}
+                  >
+                    {!activeModelIsListed && (
+                      <option value={aiSettings.ollama_model}>{aiSettings.ollama_model}</option>
+                    )}
+                    {aiModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={aiSettings.ollama_model}
+                    onChange={(event) => updateAiField("ollama_model", event.target.value)}
+                    placeholder="easypick-ai"
+                  />
+                )}
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                LM Studio 주소
+                <input
+                  value={aiSettings.lmstudio_base_url}
+                  onChange={(event) => updateAiField("lmstudio_base_url", event.target.value)}
+                  placeholder="http://host.docker.internal:1234/v1"
+                />
+              </label>
+              <label>
+                LM Studio 모델
+                {aiModels.length ? (
+                  <select
+                    value={aiSettings.lmstudio_model}
+                    onChange={(event) => updateAiField("lmstudio_model", event.target.value)}
+                  >
+                    {!activeModelIsListed && (
+                      <option value={aiSettings.lmstudio_model}>{aiSettings.lmstudio_model}</option>
+                    )}
+                    {aiModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={aiSettings.lmstudio_model}
+                    onChange={(event) => updateAiField("lmstudio_model", event.target.value)}
+                    placeholder="LM Studio 모델을 자동으로 불러옵니다"
+                  />
+                )}
+              </label>
+              <label className="admin-form-wide">
+                LM Studio API 키
+                <input
+                  value={aiSettings.lmstudio_api_key || ""}
+                  onChange={(event) => updateAiField("lmstudio_api_key", event.target.value)}
+                  placeholder="토큰을 설정하지 않았다면 비워두세요"
+                />
+              </label>
+            </>
+          )}
+
+          <div className="admin-actions">
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => loadAiModels(aiSettings, { silent: false })}
+              disabled={aiLoadingModels}
+            >
+              {aiLoadingModels ? "불러오는 중" : "모델 새로고침"}
+            </button>
+            <button className="button secondary" type="button" onClick={testAiConfig} disabled={aiTesting}>
+              {aiTesting ? "테스트 중" : "연결 테스트"}
+            </button>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => releaseAiProvider(aiSettings.provider, aiSettings, { silent: false })}
+              disabled={aiUnloading}
+            >
+              {aiUnloading ? "정리 중" : "현재 모델 연결 끊기"}
+            </button>
+            <button className="button primary" type="button" onClick={saveAiConfig} disabled={aiSaving}>
+              {aiSaving ? "저장 중" : "AI 설정 저장"}
+            </button>
+          </div>
+
+          {!!aiModels.length && (
+            <div className="admin-form-wide ai-model-list">
+              {aiModels.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={model.id === activeAiModel ? "ai-model-option active" : "ai-model-option"}
+                  onClick={() =>
+                    updateAiField(
+                      aiSettings.provider === "lmstudio" ? "lmstudio_model" : "ollama_model",
+                      model.id
+                    )
+                  }
+                >
+                  <strong>{model.name}</strong>
+                  <small>
+                    {model.id}
+                    {model.state ? ` · ${model.state}` : ""}
+                    {model.details?.quantization ? ` · ${model.details.quantization}` : ""}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="section-header">
+          <div>
+            <h2>상품 등록</h2>
+            <p>시연용 상품을 직접 등록, 수정, 삭제할 수 있습니다.</p>
+          </div>
+        </div>
 
         <form className="admin-form" onSubmit={submit}>
           {editingId && (
@@ -310,6 +655,33 @@ export default function AdminPage() {
               value={form.short_description}
               onChange={(event) => updateField("short_description", event.target.value)}
               placeholder="상품의 핵심 특징을 한 줄로 입력하세요"
+            />
+          </label>
+          <label className="admin-form-wide">
+            상세설명
+            <textarea
+              rows="4"
+              value={form.detail_description}
+              onChange={(event) => updateField("detail_description", event.target.value)}
+              placeholder="상세 페이지와 AI 답변에 활용할 상품 설명을 입력하세요"
+            />
+          </label>
+          <label>
+            추천대상
+            <textarea
+              rows="4"
+              value={form.recommended_for}
+              onChange={(event) => updateField("recommended_for", event.target.value)}
+              placeholder="예: 자취생, 사무용 사용자, 부모님 선물"
+            />
+          </label>
+          <label>
+            주의사항
+            <textarea
+              rows="4"
+              value={form.cautions}
+              onChange={(event) => updateField("cautions", event.target.value)}
+              placeholder="예: 고사양 게임에는 부족할 수 있음"
             />
           </label>
           <label className="admin-form-wide">
